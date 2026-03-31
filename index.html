@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BOS Value Pro — 一秒配置</title>
+<meta name="description" content="BOS Value Pro - Portfolio rebalancing tool">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script crossorigin src="https://unpkg.com/papaparse@5/papaparse.min.js"></script>
+<style>
+:root,[data-theme="dark"]{
+  --bg:#0a0e17;--bg2:#0f172a;--card:rgba(17,24,39,.7);--card-border:rgba(255,255,255,.06);
+  --text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;--text4:#475569;
+  --blue:#3b82f6;--blue2:#60a5fa;--blue3:#93c5fd;--green:#22c55e;--red:#ef4444;--yellow:#fbbf24;--purple:#8b5cf6;--cyan:#06b6d4;
+  --input-bg:rgba(10,14,23,.6);--input-border:rgba(255,255,255,.08);
+  --overlay:rgba(0,0,0,.6);--shadow:rgba(0,0,0,.15);
+  --toast-ok:rgba(6,78,59,.95);--toast-err:rgba(127,29,29,.95);--toast-warn:rgba(120,53,15,.95);
+}
+[data-theme="light"]{
+  --bg:#f1f5f9;--bg2:#ffffff;--card:rgba(255,255,255,.95);--card-border:rgba(15,23,42,.1);
+  --text:#0f172a;--text2:#334155;--text3:#64748b;--text4:#94a3b8;
+  --blue:#2563eb;--blue2:#3b82f6;--blue3:#1d4ed8;--green:#16a34a;--red:#dc2626;--yellow:#d97706;--purple:#7c3aed;--cyan:#0891b2;
+  --input-bg:#f8fafc;--input-border:rgba(15,23,42,.15);
+  --overlay:rgba(15,23,42,.25);--shadow:rgba(0,0,0,.06);
+  --toast-ok:rgba(22,101,52,.9);--toast-err:rgba(153,27,27,.9);--toast-warn:rgba(133,77,14,.9);
+}
+[data-theme="light"] input,[data-theme="light"] select,[data-theme="light"] textarea{color:#0f172a;background:#f8fafc;border-color:rgba(15,23,42,.12)}
+[data-theme="light"] input[type="number"]{background:#f1f5f9}
+[data-theme="light"] table input{background:#f1f5f9;border-color:rgba(15,23,42,.1)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+input,select,textarea,button{font-family:inherit}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(100,116,139,.3);border-radius:3px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+// Global error catcher - shows errors on screen if React fails to render
+window.onerror = function(msg, url, line, col, err) {
+  var root = document.getElementById("root");
+  if(root) root.innerHTML = '<div style="padding:40px;font-family:monospace;background:#1e293b;color:#f87171;min-height:100vh">' +
+    '<h2 style="color:#fbbf24">⚠️ BOS Value Pro - Error</h2>' +
+    '<pre style="white-space:pre-wrap;color:#94a3b8;margin-top:16px">' + msg + '\n\nLine: ' + line + ', Col: ' + col +
+    (err && err.stack ? '\n\nStack:\n' + err.stack : '') + '</pre>' +
+    '<p style="color:#64748b;margin-top:16px">Please screenshot this error and report it.</p></div>';
+};
+window.addEventListener("unhandledrejection", function(e) {
+  var root = document.getElementById("root");
+  if(root && !root.hasChildNodes()) root.innerHTML = '<div style="padding:40px;font-family:monospace;background:#1e293b;color:#f87171;min-height:100vh">' +
+    '<h2 style="color:#fbbf24">⚠️ Promise Error</h2>' +
+    '<pre style="white-space:pre-wrap;color:#94a3b8">' + String(e.reason) + '</pre></div>';
+});
+</script>
+
+<script type="text/babel">
+const{useState,useEffect,useCallback,useRef}=React;
+
+
+// ── i18n ──
+const LANG={
+  zh:{
+    rebalance:"📊 再平衡",plate:"🍽 菜盤",dashboard:"📈 績效",watchlist:"👀 觀察",tools:"🔮 工具箱",journal:"📓 日誌",history:"📜 歷史",guide:"📖 說明",settings:"⚙️",
+    overview:"🏠 總覽",newPortfolio:"+ 新增組合",myPortfolios:"我的組合",myPlates:"我的菜盤",
+    nav:"淨值",capital:"資金",cumReturn:"累計",capitalSetting:"💰 資金設定",fixedAmount:"固定金額",dynamicNav:"動態淨值",invested:"實際投入",
+    importSignal:"📥 匯入訊號",updatePrice:"🔍 更新股價",pastePrice:"📝 貼上股價",addAsset:"+ 新增資產",cancel:"取消",apply:"套用",
+    asset:"資產",category:"類別",targetPct:"目標%",price:"市價",targetAmt:"目標額",shares:"股數",current:"現有",pnl:"損益",diff:"差異",adjAmt:"調整額",
+    needBuy:"需買",needSell:"需賣",invest:"投入",remaining:"剩餘",placeOrder:"📋 下單並記錄",
+    noPrice:"⚠️ 無法取得股價",priceUpdated:"✅ 已更新",pasteFormat:"格式：SPY:596.47（每行一檔）",fillTickers:"填入代碼",
+    theme:"🎨 主題",lang:"🌐 語言",dark:"深色",light:"淺色",
+    driftWarning:"⚠️ 需再平衡",configNeed100:"⚠ 目標%需合計 100%",
+    created:"已建立",deleted:"已刪除",saved:"已儲存",error:"錯誤",
+    exportAll:"📦 匯出全部",importAll:"📦 匯入全部",exportPortfolio:"📤 匯出組合",importPortfolio:"📥 匯入組合",
+    copyJson:"📋 複製 JSON",pasteRestore:"📥 貼上還原",dangerZone:"⚠️ 危險區域",deletePortfolio:"🗑 刪除此組合",confirmDelete:"確定刪除",
+    fontSizeLabel:"🔤 字體大小",benchmarkLabel:"📊 基準指標",driftLabel:"⚠️ 落差警示閾值",avatarLabel:"👤 頭像",backupLabel:"💾 資料備份",
+    storageNote:"資料儲存於瀏覽器 localStorage，建議定期匯出備份。",
+    createTitle:"建立新組合",portfolioName:"組合名稱",create:"🚀 建立",
+    startUsing:"🚀 開始使用",subtitle:"一秒配置",
+    sim:"📉 情境模擬",div:"💰 股息",cal:"📅 日曆",plan:"🎯 目標規劃",cmp:"⚖️ 組合比較",
+    catSort:"類別",nameSort:"名稱",pctSort:"%",diffSort:"差異",
+  },
+  en:{
+    rebalance:"📊 Rebalance",plate:"🍽 Plates",dashboard:"📈 Performance",watchlist:"👀 Watchlist",tools:"🔮 Tools",journal:"📓 Journal",history:"📜 History",guide:"📖 Guide",settings:"⚙️",
+    overview:"🏠 Overview",newPortfolio:"+ New Portfolio",myPortfolios:"My Portfolios",myPlates:"My Plates",
+    nav:"NAV",capital:"Capital",cumReturn:"Return",capitalSetting:"💰 Capital",fixedAmount:"Fixed",dynamicNav:"Dynamic",invested:"Invested",
+    importSignal:"📥 Import",updatePrice:"🔍 Update Prices",pastePrice:"📝 Paste Prices",addAsset:"+ Add Asset",cancel:"Cancel",apply:"Apply",
+    asset:"Asset",category:"Cat",targetPct:"Target%",price:"Price",targetAmt:"Target$",shares:"Shares",current:"Current",pnl:"P&L",diff:"Diff",adjAmt:"Adj$",
+    needBuy:"Buy",needSell:"Sell",invest:"Invested",remaining:"Remaining",placeOrder:"📋 Place & Record",
+    noPrice:"⚠️ Price fetch failed",priceUpdated:"✅ Updated",pasteFormat:"Format: SPY:596.47 (one per line)",fillTickers:"Fill tickers",
+    theme:"🎨 Theme",lang:"🌐 Lang",dark:"Dark",light:"Light",
+    driftWarning:"⚠️ Rebalance needed",configNeed100:"⚠ Target must sum to 100%",
+    created:"Created",deleted:"Deleted",saved:"Saved",error:"Error",
+    exportAll:"📦 Export All",importAll:"📦 Import All",exportPortfolio:"📤 Export",importPortfolio:"📥 Import",
+    copyJson:"📋 Copy JSON",pasteRestore:"📥 Paste Restore",dangerZone:"⚠️ Danger Zone",deletePortfolio:"🗑 Delete Portfolio",confirmDelete:"Confirm Delete",
+    fontSizeLabel:"🔤 Font Size",benchmarkLabel:"📊 Benchmark",driftLabel:"⚠️ Drift Alert",avatarLabel:"👤 Avatar",backupLabel:"💾 Backup",
+    storageNote:"Data is stored in browser localStorage. Export backups regularly.",
+    createTitle:"New Portfolio",portfolioName:"Portfolio Name",create:"🚀 Create",
+    startUsing:"🚀 Get Started",subtitle:"One-Click Setup",
+    sim:"📉 Scenario",div:"💰 Dividends",cal:"📅 Calendar",plan:"🎯 Planner",cmp:"⚖️ Compare",
+    catSort:"Cat",nameSort:"Name",pctSort:"%",diffSort:"Diff",
+  }
+};
+function t(key,lang="zh"){return LANG[lang]?.[key]||LANG.zh[key]||key}
+
+
+// ── Constants ──
+const PK="idx",PP="p-",JK="j",CK="cfg",AVK="av",PLK="pl-",WK="wl";
+const ASSET_DB={SPY:{cat:"核心",c:"#60a5fa",beta:1},QQQ:{cat:"核心",c:"#60a5fa",beta:1.15},IWM:{cat:"核心",c:"#60a5fa",beta:1.2},DXJ:{cat:"核心",c:"#60a5fa",beta:0.8},TSM:{cat:"科技",c:"#818cf8",beta:1.3},TQQQ:{cat:"槓桿",c:"#f87171",beta:3},UPRO:{cat:"槓桿",c:"#f87171",beta:3},SOXL:{cat:"槓桿",c:"#f87171",beta:3.5},TECL:{cat:"槓桿",c:"#f87171",beta:3},QLD:{cat:"槓桿",c:"#f87171",beta:2},SSO:{cat:"槓桿",c:"#f87171",beta:2},UVXY:{cat:"波動率",c:"#fbbf24",beta:-3},VXX:{cat:"波動率",c:"#fbbf24",beta:-2.5},VIXY:{cat:"波動率",c:"#fbbf24",beta:-2.5},TLT:{cat:"債券",c:"#34d399",beta:-0.3},TMF:{cat:"債券",c:"#34d399",beta:-0.9},TMV:{cat:"債券",c:"#34d399",beta:0.9},BOND:{cat:"債券",c:"#34d399",beta:-0.1},SHV:{cat:"債券",c:"#34d399",beta:0},BIL:{cat:"債券",c:"#34d399",beta:0},IEF:{cat:"債券",c:"#34d399",beta:-0.15},UGL:{cat:"黃金",c:"#facc15",beta:0},GLD:{cat:"黃金",c:"#facc15",beta:0.05},EEM:{cat:"新興",c:"#a78bfa",beta:1.1},EDC:{cat:"新興",c:"#a78bfa",beta:3.3},UCO:{cat:"商品",c:"#a8a29e",beta:0.4},SCO:{cat:"商品",c:"#a8a29e",beta:-0.4},DBO:{cat:"商品",c:"#a8a29e",beta:0.2},KMLM:{cat:"商品",c:"#a8a29e",beta:0.1},PSQ:{cat:"防禦",c:"#22d3ee",beta:-1},SQQQ:{cat:"防禦",c:"#22d3ee",beta:-3},XLP:{cat:"防禦",c:"#22d3ee",beta:0.6},SH:{cat:"防禦",c:"#22d3ee",beta:-1},XLK:{cat:"科技",c:"#818cf8",beta:1.1},SMH:{cat:"科技",c:"#818cf8",beta:1.3},BOXX:{cat:"現金",c:"#9ca3af",beta:0},UUP:{cat:"貨幣",c:"#9ca3af",beta:-0.1},VT:{cat:"核心",c:"#60a5fa",beta:1.05},VOO:{cat:"核心",c:"#60a5fa",beta:1},VTI:{cat:"核心",c:"#60a5fa",beta:1},SPLG:{cat:"核心",c:"#60a5fa",beta:1},SPHQ:{cat:"核心",c:"#60a5fa",beta:0.85},BNDX:{cat:"債券",c:"#34d399",beta:-0.1},AGG:{cat:"債券",c:"#34d399",beta:-0.1},LQD:{cat:"債券",c:"#34d399",beta:-0.05},HYG:{cat:"債券",c:"#34d399",beta:0.3},IAU:{cat:"黃金",c:"#facc15",beta:0.05},SGOL:{cat:"黃金",c:"#facc15",beta:0.05},GDX:{cat:"黃金",c:"#facc15",beta:0.5},PDBC:{cat:"商品",c:"#a8a29e",beta:0.3},DBMF:{cat:"商品",c:"#a8a29e",beta:0.1},COM:{cat:"商品",c:"#a8a29e",beta:0.2},EFA:{cat:"國際",c:"#a78bfa",beta:0.9},VEA:{cat:"國際",c:"#a78bfa",beta:0.9},IEMG:{cat:"新興",c:"#a78bfa",beta:1.1},BTAL:{cat:"防禦",c:"#22d3ee",beta:-0.7},USDU:{cat:"貨幣",c:"#9ca3af",beta:-0.2},
+// 科技
+AAPL:{cat:"科技",c:"#818cf8",beta:1.2},MSFT:{cat:"科技",c:"#818cf8",beta:0.9},NVDA:{cat:"科技",c:"#818cf8",beta:1.8},AMZN:{cat:"科技",c:"#818cf8",beta:1.1},GOOGL:{cat:"科技",c:"#818cf8",beta:1.1},GOOG:{cat:"科技",c:"#818cf8",beta:1.1},META:{cat:"科技",c:"#818cf8",beta:1.3},TSLA:{cat:"科技",c:"#818cf8",beta:2.0},NFLX:{cat:"科技",c:"#818cf8",beta:1.2},AVGO:{cat:"科技",c:"#818cf8",beta:1.4},AMD:{cat:"科技",c:"#818cf8",beta:1.9},INTC:{cat:"科技",c:"#818cf8",beta:1.1},ORCL:{cat:"科技",c:"#818cf8",beta:1.0},CRM:{cat:"科技",c:"#818cf8",beta:1.2},ADBE:{cat:"科技",c:"#818cf8",beta:1.1},QCOM:{cat:"科技",c:"#818cf8",beta:1.2},TXN:{cat:"科技",c:"#818cf8",beta:1.1},MU:{cat:"科技",c:"#818cf8",beta:1.5},AMAT:{cat:"科技",c:"#818cf8",beta:1.4},NOW:{cat:"科技",c:"#818cf8",beta:1.2},UBER:{cat:"科技",c:"#818cf8",beta:1.3},ABNB:{cat:"科技",c:"#818cf8",beta:1.4},PLTR:{cat:"科技",c:"#818cf8",beta:1.6},SNOW:{cat:"科技",c:"#818cf8",beta:1.3},
+// 金融
+JPM:{cat:"金融",c:"#fb923c",beta:1.1},BAC:{cat:"金融",c:"#fb923c",beta:1.3},GS:{cat:"金融",c:"#fb923c",beta:1.2},BRK_B:{cat:"金融",c:"#fb923c",beta:0.8},V:{cat:"金融",c:"#fb923c",beta:0.9},MA:{cat:"金融",c:"#fb923c",beta:1.0},WFC:{cat:"金融",c:"#fb923c",beta:1.2},MS:{cat:"金融",c:"#fb923c",beta:1.2},AXP:{cat:"金融",c:"#fb923c",beta:1.1},BLK:{cat:"金融",c:"#fb923c",beta:1.2},SPGI:{cat:"金融",c:"#fb923c",beta:1.0},COF:{cat:"金融",c:"#fb923c",beta:1.2},
+// 醫療
+JNJ:{cat:"醫療",c:"#f472b6",beta:0.6},UNH:{cat:"醫療",c:"#f472b6",beta:0.7},PFE:{cat:"醫療",c:"#f472b6",beta:0.7},ABBV:{cat:"醫療",c:"#f472b6",beta:0.6},LLY:{cat:"醫療",c:"#f472b6",beta:0.5},MRK:{cat:"醫療",c:"#f472b6",beta:0.6},ABT:{cat:"醫療",c:"#f472b6",beta:0.7},TMO:{cat:"醫療",c:"#f472b6",beta:0.9},AMGN:{cat:"醫療",c:"#f472b6",beta:0.7},GILD:{cat:"醫療",c:"#f472b6",beta:0.5},ISRG:{cat:"醫療",c:"#f472b6",beta:0.9},VRTX:{cat:"醫療",c:"#f472b6",beta:0.6},
+// 能源
+XOM:{cat:"能源",c:"#fbbf24",beta:0.9},CVX:{cat:"能源",c:"#fbbf24",beta:0.9},COP:{cat:"能源",c:"#fbbf24",beta:1.0},XLE:{cat:"能源",c:"#fbbf24",beta:1.0},EOG:{cat:"能源",c:"#fbbf24",beta:1.1},SLB:{cat:"能源",c:"#fbbf24",beta:1.2},OXY:{cat:"能源",c:"#fbbf24",beta:1.2},MPC:{cat:"能源",c:"#fbbf24",beta:1.0},
+// 消費
+COST:{cat:"消費",c:"#34d399",beta:0.8},WMT:{cat:"消費",c:"#34d399",beta:0.5},PG:{cat:"消費",c:"#34d399",beta:0.5},KO:{cat:"消費",c:"#34d399",beta:0.5},PEP:{cat:"消費",c:"#34d399",beta:0.5},MCD:{cat:"消費",c:"#34d399",beta:0.7},SBUX:{cat:"消費",c:"#34d399",beta:0.9},NKE:{cat:"消費",c:"#34d399",beta:0.9},TGT:{cat:"消費",c:"#34d399",beta:0.9},HD:{cat:"消費",c:"#34d399",beta:1.0},LOW:{cat:"消費",c:"#34d399",beta:1.0},
+// 工業
+CAT:{cat:"工業",c:"#f97316",beta:1.1},DE:{cat:"工業",c:"#f97316",beta:1.0},HON:{cat:"工業",c:"#f97316",beta:1.0},GE:{cat:"工業",c:"#f97316",beta:1.1},RTX:{cat:"工業",c:"#f97316",beta:0.9},LMT:{cat:"工業",c:"#f97316",beta:0.7},NOC:{cat:"工業",c:"#f97316",beta:0.7},BA:{cat:"工業",c:"#f97316",beta:1.2},UPS:{cat:"工業",c:"#f97316",beta:0.9},FDX:{cat:"工業",c:"#f97316",beta:1.0},UNP:{cat:"工業",c:"#f97316",beta:0.9},
+// 通訊
+T:{cat:"通訊",c:"#22d3ee",beta:0.7},VZ:{cat:"通訊",c:"#22d3ee",beta:0.5},CMCSA:{cat:"通訊",c:"#22d3ee",beta:0.9},DIS:{cat:"通訊",c:"#22d3ee",beta:1.0},
+// 配息/核心ETF
+SCHD:{cat:"核心",c:"#60a5fa",beta:0.85},JEPI:{cat:"核心",c:"#60a5fa",beta:0.65},JEPQ:{cat:"核心",c:"#60a5fa",beta:0.75},QYLD:{cat:"核心",c:"#60a5fa",beta:0.85},XYLD:{cat:"核心",c:"#60a5fa",beta:0.8},
+RSP:{cat:"核心",c:"#60a5fa",beta:1.0},MGK:{cat:"核心",c:"#60a5fa",beta:1.1},XLG:{cat:"核心",c:"#60a5fa",beta:1.0},SCHG:{cat:"核心",c:"#60a5fa",beta:1.1},SPYG:{cat:"核心",c:"#60a5fa",beta:1.1},VXUS:{cat:"核心",c:"#60a5fa",beta:0.9},USMV:{cat:"核心",c:"#60a5fa",beta:0.7},VBR:{cat:"核心",c:"#60a5fa",beta:1.1},VYM:{cat:"核心",c:"#60a5fa",beta:0.75},SPHB:{cat:"核心",c:"#60a5fa",beta:1.4},SPLV:{cat:"核心",c:"#60a5fa",beta:0.65},MAGS:{cat:"核心",c:"#60a5fa",beta:1.3},QUAL:{cat:"核心",c:"#60a5fa",beta:0.85},MOAT:{cat:"核心",c:"#60a5fa",beta:0.9},NOBL:{cat:"核心",c:"#60a5fa",beta:0.8},DGRW:{cat:"核心",c:"#60a5fa",beta:0.8},DIVO:{cat:"核心",c:"#60a5fa",beta:0.75},SUSA:{cat:"核心",c:"#60a5fa",beta:0.85},PKW:{cat:"核心",c:"#60a5fa",beta:0.9},VFLO:{cat:"核心",c:"#60a5fa",beta:0.85},NANC:{cat:"核心",c:"#60a5fa",beta:1.0},XLU:{cat:"核心",c:"#60a5fa",beta:0.4},SCHY:{cat:"核心",c:"#60a5fa",beta:0.75},DGS:{cat:"核心",c:"#60a5fa",beta:1.0},
+ASML:{cat:"科技",c:"#818cf8",beta:1.3},ACN:{cat:"科技",c:"#818cf8",beta:1.0},CSCO:{cat:"科技",c:"#818cf8",beta:0.9},INTU:{cat:"科技",c:"#818cf8",beta:1.2},CRWD:{cat:"科技",c:"#818cf8",beta:1.4},FTNT:{cat:"科技",c:"#818cf8",beta:1.2},CDNS:{cat:"科技",c:"#818cf8",beta:1.1},KLAC:{cat:"科技",c:"#818cf8",beta:1.3},LRCX:{cat:"科技",c:"#818cf8",beta:1.4},ANET:{cat:"科技",c:"#818cf8",beta:1.2},APH:{cat:"科技",c:"#818cf8",beta:1.0},HOOD:{cat:"科技",c:"#818cf8",beta:1.5},IBKR:{cat:"科技",c:"#818cf8",beta:1.1},SOFI:{cat:"科技",c:"#818cf8",beta:1.4},PYPL:{cat:"科技",c:"#818cf8",beta:1.2},WDAY:{cat:"科技",c:"#818cf8",beta:1.1},VEEV:{cat:"科技",c:"#818cf8",beta:1.0},EXLS:{cat:"科技",c:"#818cf8",beta:0.9},COHR:{cat:"科技",c:"#818cf8",beta:1.2},CIEN:{cat:"科技",c:"#818cf8",beta:1.2},IDXX:{cat:"科技",c:"#818cf8",beta:1.0},APP:{cat:"科技",c:"#818cf8",beta:1.5},CHKP:{cat:"科技",c:"#818cf8",beta:0.8},EA:{cat:"科技",c:"#818cf8",beta:0.8},DLB:{cat:"科技",c:"#818cf8",beta:0.8},ALAB:{cat:"科技",c:"#818cf8",beta:1.6},CLS:{cat:"科技",c:"#818cf8",beta:1.1},IGV:{cat:"科技",c:"#818cf8",beta:1.2},ROBO:{cat:"科技",c:"#818cf8",beta:1.1},IPAY:{cat:"科技",c:"#818cf8",beta:1.0},IREN:{cat:"科技",c:"#818cf8",beta:2.0},SMHX:{cat:"科技",c:"#818cf8",beta:1.5},MEDP:{cat:"科技",c:"#818cf8",beta:0.9},
+MCO:{cat:"金融",c:"#fb923c",beta:1.0},MSCI:{cat:"金融",c:"#fb923c",beta:1.0},CME:{cat:"金融",c:"#fb923c",beta:0.7},MKL:{cat:"金融",c:"#fb923c",beta:0.8},SEIC:{cat:"金融",c:"#fb923c",beta:0.9},FDS:{cat:"金融",c:"#fb923c",beta:0.9},AFL:{cat:"金融",c:"#fb923c",beta:0.8},CINF:{cat:"金融",c:"#fb923c",beta:0.8},KNSL:{cat:"金融",c:"#fb923c",beta:0.9},CB:{cat:"金融",c:"#fb923c",beta:0.7},ALL:{cat:"金融",c:"#fb923c",beta:0.8},TROW:{cat:"金融",c:"#fb923c",beta:1.1},BKNG:{cat:"金融",c:"#fb923c",beta:1.2},PAYC:{cat:"金融",c:"#fb923c",beta:1.0},PAYX:{cat:"金融",c:"#fb923c",beta:0.9},ADP:{cat:"金融",c:"#fb923c",beta:0.9},MTB:{cat:"金融",c:"#fb923c",beta:1.0},FCN:{cat:"金融",c:"#fb923c",beta:0.9},
+DHR:{cat:"醫療",c:"#f472b6",beta:0.9},RMD:{cat:"醫療",c:"#f472b6",beta:0.8},MDT:{cat:"醫療",c:"#f472b6",beta:0.7},EW:{cat:"醫療",c:"#f472b6",beta:0.9},ZTS:{cat:"醫療",c:"#f472b6",beta:0.8},SCI:{cat:"醫療",c:"#f472b6",beta:0.7},INCY:{cat:"醫療",c:"#f472b6",beta:0.7},XLV:{cat:"醫療",c:"#f472b6",beta:0.7},CHE:{cat:"醫療",c:"#f472b6",beta:0.7},
+TPL:{cat:"能源",c:"#fbbf24",beta:1.2},
+MDLZ:{cat:"消費",c:"#34d399",beta:0.6},MKC:{cat:"消費",c:"#34d399",beta:0.6},CHD:{cat:"消費",c:"#34d399",beta:0.6},GIS:{cat:"消費",c:"#34d399",beta:0.5},HSY:{cat:"消費",c:"#34d399",beta:0.6},MNST:{cat:"消費",c:"#34d399",beta:0.8},COKE:{cat:"消費",c:"#34d399",beta:0.7},YUM:{cat:"消費",c:"#34d399",beta:0.8},DPZ:{cat:"消費",c:"#34d399",beta:0.9},TXRH:{cat:"消費",c:"#34d399",beta:1.0},WING:{cat:"消費",c:"#34d399",beta:1.0},SFM:{cat:"消費",c:"#34d399",beta:0.7},ULTA:{cat:"消費",c:"#34d399",beta:1.0},LULU:{cat:"消費",c:"#34d399",beta:1.1},DKS:{cat:"消費",c:"#34d399",beta:1.0},WSM:{cat:"消費",c:"#34d399",beta:1.1},ROST:{cat:"消費",c:"#34d399",beta:0.9},TJX:{cat:"消費",c:"#34d399",beta:0.9},AZO:{cat:"消費",c:"#34d399",beta:0.8},CPRT:{cat:"消費",c:"#34d399",beta:0.9},FAST:{cat:"消費",c:"#34d399",beta:1.0},BTI:{cat:"消費",c:"#34d399",beta:0.6},DECK:{cat:"消費",c:"#34d399",beta:1.1},RACE:{cat:"消費",c:"#34d399",beta:1.0},WDFC:{cat:"消費",c:"#34d399",beta:0.7},
+APD:{cat:"工業",c:"#f97316",beta:0.9},AME:{cat:"工業",c:"#f97316",beta:1.0},PH:{cat:"工業",c:"#f97316",beta:1.1},DOV:{cat:"工業",c:"#f97316",beta:1.0},GGG:{cat:"工業",c:"#f97316",beta:1.0},MMM:{cat:"工業",c:"#f97316",beta:0.9},ALLE:{cat:"工業",c:"#f97316",beta:0.9},AOS:{cat:"工業",c:"#f97316",beta:1.0},BMI:{cat:"工業",c:"#f97316",beta:0.9},BRC:{cat:"工業",c:"#f97316",beta:0.8},FSS:{cat:"工業",c:"#f97316",beta:0.9},SNA:{cat:"工業",c:"#f97316",beta:1.0},ATI:{cat:"工業",c:"#f97316",beta:1.1},ALSN:{cat:"工業",c:"#f97316",beta:0.9},AIT:{cat:"工業",c:"#f97316",beta:1.0},TREX:{cat:"工業",c:"#f97316",beta:1.1},PKG:{cat:"工業",c:"#f97316",beta:0.9},WM:{cat:"工業",c:"#f97316",beta:0.8},B:{cat:"工業",c:"#f97316",beta:0.9},DHI:{cat:"工業",c:"#f97316",beta:1.2},LIN:{cat:"工業",c:"#f97316",beta:0.8},ROL:{cat:"工業",c:"#f97316",beta:0.7},GNTX:{cat:"工業",c:"#f97316",beta:0.9},SHW:{cat:"工業",c:"#f97316",beta:0.9},AWR:{cat:"工業",c:"#f97316",beta:0.4},YORW:{cat:"工業",c:"#f97316",beta:0.4},HHH:{cat:"工業",c:"#f97316",beta:1.0},
+VNQ:{cat:"REITs",c:"#14b8a6",beta:0.8},XLRE:{cat:"REITs",c:"#14b8a6",beta:0.8},EQIX:{cat:"REITs",c:"#14b8a6",beta:0.9},PLD:{cat:"REITs",c:"#14b8a6",beta:0.9},PSA:{cat:"REITs",c:"#14b8a6",beta:0.7},ESS:{cat:"REITs",c:"#14b8a6",beta:0.8},ELS:{cat:"REITs",c:"#14b8a6",beta:0.6},IIPR:{cat:"REITs",c:"#14b8a6",beta:1.1},TRNO:{cat:"REITs",c:"#14b8a6",beta:0.8},O:{cat:"REITs",c:"#14b8a6",beta:0.7},CUBE:{cat:"REITs",c:"#14b8a6",beta:0.8},
+INDA:{cat:"國際",c:"#a78bfa",beta:1.0},AFK:{cat:"國際",c:"#a78bfa",beta:1.0},EWT:{cat:"國際",c:"#a78bfa",beta:1.1},
+SGOV:{cat:"債券",c:"#34d399",beta:0.0},PFIX:{cat:"債券",c:"#34d399",beta:0.1},RFIX:{cat:"債券",c:"#34d399",beta:0.1},RISR:{cat:"債券",c:"#34d399",beta:0.1},SBAR:{cat:"債券",c:"#34d399",beta:0.0},TYA:{cat:"債券",c:"#34d399",beta:-0.3},
+SVOL:{cat:"波動率",c:"#fbbf24",beta:-1.5},VIXM:{cat:"波動率",c:"#fbbf24",beta:-2.0},SVIX:{cat:"波動率",c:"#fbbf24",beta:2.5},
+VAMO:{cat:"防禦",c:"#22d3ee",beta:0.3},SWAN:{cat:"防禦",c:"#22d3ee",beta:0.4},
+EDZ:{cat:"槓桿",c:"#f87171",beta:-3},URE:{cat:"槓桿",c:"#f87171",beta:2},RSSB:{cat:"槓桿",c:"#f87171",beta:1.5},RSST:{cat:"槓桿",c:"#f87171",beta:1.5},RSSY:{cat:"槓桿",c:"#f87171",beta:1.5},SPBU:{cat:"槓桿",c:"#f87171",beta:2},
+IBIT:{cat:"加密",c:"#f59e0b",beta:1.5},GBTC:{cat:"加密",c:"#f59e0b",beta:1.5},ETHA:{cat:"加密",c:"#f59e0b",beta:1.6},MSTR:{cat:"加密",c:"#f59e0b",beta:2.0},EZBC:{cat:"加密",c:"#f59e0b",beta:1.5},
+ARKK:{cat:"主題",c:"#e879f9",beta:1.6},XME:{cat:"主題",c:"#e879f9",beta:1.3},LITL:{cat:"主題",c:"#e879f9",beta:1.2},HGER:{cat:"主題",c:"#e879f9",beta:0.5},KNRG:{cat:"主題",c:"#e879f9",beta:1.0},IVES:{cat:"主題",c:"#e879f9",beta:1.1},QMOM:{cat:"主題",c:"#e879f9",beta:1.0},QVAL:{cat:"主題",c:"#e879f9",beta:0.9},HEQT:{cat:"主題",c:"#e879f9",beta:0.6},GOLY:{cat:"主題",c:"#e879f9",beta:0.5},IOPP:{cat:"主題",c:"#e879f9",beta:0.9},
+// 匯入補充分類
+BMNR:{cat:"核心",c:"#60a5fa",beta:0.8},BRKB:{cat:"金融",c:"#fb923c",beta:0.8},AVUV:{cat:"核心",c:"#60a5fa",beta:1.15},CAOS:{cat:"防禦",c:"#22d3ee",beta:-0.5},CLSE:{cat:"防禦",c:"#22d3ee",beta:0.4},CTA:{cat:"商品",c:"#a8a29e",beta:0.1},CTAP:{cat:"主題",c:"#e879f9",beta:0.8},DISV:{cat:"國際",c:"#a78bfa",beta:1.0},FOXY:{cat:"核心",c:"#60a5fa",beta:0.8},GRNJ:{cat:"主題",c:"#e879f9",beta:0.9},GRNY:{cat:"主題",c:"#e879f9",beta:0.9},ILS:{cat:"國際",c:"#a78bfa",beta:0.8},LVHI:{cat:"國際",c:"#a78bfa",beta:0.7},PINK:{cat:"醫療",c:"#f472b6",beta:0.7},RSSX:{cat:"槓桿",c:"#f87171",beta:1.5},RSX:{cat:"國際",c:"#a78bfa",beta:1.2},SPMO:{cat:"核心",c:"#60a5fa",beta:1.1},HCMT:{cat:"槓桿",c:"#f87171",beta:2.0}};
+const getA=t=>ASSET_DB[t]||{cat:"自訂",c:"#94a3b8",beta:1};
+const CAT_ORD=["核心","槓桿","波動率","債券","黃金","新興","國際","商品","防禦","科技","金融","醫療","能源","消費","工業","通訊","REITs","加密","主題","現金","貨幣","自訂"];
+const PIE_COLORS=["#3b82f6","#ef4444","#22c55e","#f59e0b","#8b5cf6","#06b6d4","#ec4899","#f97316","#14b8a6","#a855f7","#84cc16","#e11d48"];
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+const td=()=>new Date().toISOString().slice(0,10);
+const $f=(n,d=2)=>n==null||isNaN(n)?"—":"$"+Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
+const Pf=(n,d=2)=>n==null||isNaN(n)?"—":(Number(n)>=0?"+":"")+Number(n).toFixed(d)+"%";
+const Nf=(n,d=2)=>n==null||isNaN(n)?"—":Number(n).toFixed(d);
+
+const DEMO_JOURNAL=[{id:"dj1",date:"2026-01-20",type:"rebalance",mood:4,confidence:8,marketSentiment:"bullish",notes:"完成季度再平衡，TQQQ 從 50% 調降至 40%，增加 TLT 至 20%。市場高點需降低槓桿，符合 BOS 訊號。",tags:"BOS, ETF, 動量",isDemo:true},{id:"dj2",date:"2025-12-05",type:"observe",mood:2,confidence:4,marketSentiment:"bearish",notes:"VIX 突破 20，觀察 IVTS 訊號，暫緩加倉等待更明確進場點。",tags:"BOS, 波動率",isDemo:true}];
+const QUICK_PLATES=[{label:"60/40 均衡",icon:"⚖️",allocs:{SPY:60,TLT:40},desc:"股債均衡，降低波動"},{label:"永久組合",icon:"🏛",allocs:{SPY:25,TLT:25,GLD:25,BIL:25},desc:"四季皆宜，超低回撤"},{label:"全天候",icon:"🌦",allocs:{SPY:30,TLT:40,GLD:15,DBO:7.5,KMLM:7.5},desc:"Ray Dalio 風險平價"},{label:"BOS 積極",icon:"🚀",allocs:{TQQQ:50,TMF:30,GLD:20},desc:"高槓桿動量配置"},{label:"HFEA",icon:"⚡",allocs:{TQQQ:55,TMF:45},desc:"槓桿股債對沖"},{label:"股債黃金",icon:"🔱",allocs:{SPY:50,TLT:30,GLD:20},desc:"三角低回撤配置"},{label:"全球分散",icon:"🌍",allocs:{VT:60,TLT:30,GLD:10},desc:"全球股+債+黃金"},{label:"動量均衡",icon:"🔄",allocs:{QQQ:40,GLD:30,TLT:30},desc:"科技+黃金+債券"},{label:"全市場",icon:"🦅",allocs:{VTI:70,BNDX:30},desc:"美股全市場+國際債"}];
+const BUILTIN_AVATARS=[{id:"bull",emoji:"🐂",bg:"#1e3a5f"},{id:"lion",emoji:"🦁",bg:"#3d2b0a"},{id:"fox",emoji:"🦊",bg:"#3d1a08"},{id:"robot",emoji:"🤖",bg:"#1a1a40"},{id:"gem",emoji:"💎",bg:"#0a2540"},{id:"rocket",emoji:"🚀",bg:"#0f1a35"},{id:"brain",emoji:"🧠",bg:"#2d0a40"},{id:"chart",emoji:"📊",bg:"#0a2a1a"}].map(a=>({...a,src:`data:image/svg+xml;charset=utf-8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56"><circle cx="28" cy="28" r="28" fill="${a.bg}"/><text x="28" y="38" text-anchor="middle" font-size="26" font-family="Apple Color Emoji,Segoe UI Emoji,sans-serif">${a.emoji}</text></svg>`)}`}));
+
+const animCSS=`
+@keyframes slideInL{from{transform:translateX(-16px);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes fadeSlideIn{from{transform:translateY(8px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes fadeSlideOut{from{opacity:1}to{opacity:0}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes logoFloat{0%,100%{transform:translateY(0)}25%{transform:translateY(-8px)}75%{transform:translateY(4px)}}
+@keyframes btnGlow{0%,100%{box-shadow:0 0 20px rgba(59,130,246,.2)}50%{box-shadow:0 0 40px rgba(59,130,246,.4)}}
+@keyframes execPulse{0%,100%{box-shadow:0 4px 20px rgba(16,185,129,.4),0 0 0 0 rgba(16,185,129,.3)}50%{box-shadow:0 4px 30px rgba(16,185,129,.6),0 0 0 8px rgba(16,185,129,.0)}}
+@keyframes addBtnPulse{0%,100%{border-color:rgba(59,130,246,.4)}50%{border-color:rgba(59,130,246,.8);box-shadow:0 0 14px rgba(59,130,246,.3)}}
+@keyframes cardIn{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes celebPop{0%{transform:scale(.7);opacity:0}60%{transform:scale(1.06)}100%{transform:scale(1);opacity:1}}
+@keyframes celebBounce{0%,100%{transform:translateY(0)}40%{transform:translateY(-10px)}60%{transform:translateY(-5px)}}
+@keyframes gradShift{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+@keyframes orbFloat1{0%,100%{transform:translate(0,0)}50%{transform:translate(40px,30px)}}
+@keyframes orbFloat2{0%,100%{transform:translate(0,0)}50%{transform:translate(-30px,-40px)}}
+@keyframes float0{0%,100%{transform:translate(0,0)}33%{transform:translate(35px,-25px)}66%{transform:translate(-25px,20px)}}
+@keyframes float1{0%,100%{transform:translate(0,0)}33%{transform:translate(-30px,30px)}66%{transform:translate(20px,-35px)}}
+@keyframes float2{0%,100%{transform:translate(0,0)}33%{transform:translate(25px,25px)}66%{transform:translate(-35px,-15px)}}
+@keyframes float3{0%,100%{transform:translate(0,0)}33%{transform:translate(-15px,-20px)}66%{transform:translate(30px,10px)}}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.3;transform:scale(.8)}}
+@keyframes rippleOut{0%{transform:scale(0);opacity:1}100%{transform:scale(3);opacity:0}}
+*::-webkit-scrollbar{width:5px;height:5px}*::-webkit-scrollbar-track{background:transparent}*::-webkit-scrollbar-thumb{background:#1e293b;border-radius:3px}
+button:hover{filter:brightness(1.08)}
+`;
+const gs={app:{display:"flex",height:"100vh",fontFamily:"'SF Mono','JetBrains Mono',monospace",background:"linear-gradient(135deg,var(--bg),var(--bg2))",color:"var(--text)",overflow:"hidden"},logo:{fontSize:12,fontWeight:800,background:"linear-gradient(135deg,#3b82f6,#06b6d4)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"},toast:{position:"fixed",top:16,right:16,zIndex:9999,padding:"10px 18px",borderRadius:10,border:"1px solid",color:"#fff",fontSize:12,fontFamily:"monospace",fontWeight:600,boxShadow:"0 8px 32px rgba(0,0,0,.4)",animation:"celebPop .3s ease",backdropFilter:"blur(8px)"},side:{background:"var(--card)",borderRight:"1px solid var(--card-border)",display:"flex",flexDirection:"column",transition:"width .25s",overflow:"hidden",backdropFilter:"blur(12px)"},sideHead:{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px",borderBottom:"1px solid var(--card-border)"},sideToggle:{background:"none",border:"none",color:"var(--text3)",cursor:"pointer",fontSize:10,padding:4,fontFamily:"inherit"},sideLabel:{padding:"8px 10px 2px",fontSize:8,color:"var(--text3)",textTransform:"uppercase",letterSpacing:"1.5px"},sideAdd:{display:"block",width:"calc(100% - 12px)",padding:"7px 10px",margin:"4px 6px",background:"linear-gradient(135deg,rgba(59,130,246,.12),rgba(139,92,246,.08))",border:"1px solid rgba(59,130,246,.3)",color:"#93c5fd",borderRadius:6,cursor:"pointer",fontSize:11,fontFamily:"inherit",textAlign:"center",fontWeight:600},sideItem:{display:"flex",alignItems:"center",width:"100%",padding:"6px 10px",background:"none",border:"none",color:"var(--text2)",cursor:"pointer",fontSize:11,fontFamily:"inherit",textAlign:"left",borderRadius:4,margin:"1px 3px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},mainW:{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"},hdr:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 16px",borderBottom:"1px solid var(--card-border)",background:"var(--card)",backdropFilter:"blur(12px)",flexWrap:"wrap",gap:6},nav:{display:"flex",borderBottom:"1px solid var(--card-border)",background:"var(--card)",padding:"0 16px",overflowX:"auto"},navTab:{padding:"7px 10px",background:"none",border:"none",borderBottom:"2px solid transparent",color:"var(--text2)",fontSize:10,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",position:"relative"},navActive:{color:"#3b82f6",borderBottomColor:"#3b82f6"},content:{flex:1,overflow:"auto",padding:"14px 16px"},ctrlBar:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6},ctrlG:{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"},badge:{padding:"3px 10px",borderRadius:14,color:"#fff",fontSize:10,fontWeight:700},btnP:{padding:"5px 11px",background:"linear-gradient(135deg,#1d4ed8,#2563eb)",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:10,fontFamily:"inherit",fontWeight:600},btnA:{padding:"5px 11px",background:"linear-gradient(135deg,#7c3aed,#6d28d9)",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:10,fontFamily:"inherit",fontWeight:600},btnG:{padding:"5px 11px",background:"var(--input-bg)",color:"var(--text2)",border:"1px solid var(--input-border)",borderRadius:6,cursor:"pointer",fontSize:10,fontFamily:"inherit"},btnX:{background:"none",border:"none",color:"#ef4444",cursor:"pointer",padding:"2px 4px",fontSize:10},btnExec:{padding:"8px 18px",background:"linear-gradient(135deg,#059669,#10b981)",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"inherit"},chip:{padding:"2px 7px",background:"none",border:"1px solid",borderRadius:10,cursor:"pointer",fontSize:9,fontFamily:"inherit"},pt:{margin:"0 0 6px",fontSize:11,fontWeight:700,color:"var(--text)"},hint:{fontSize:10,color:"var(--text2)",margin:"0 0 4px"},fl:{display:"block",fontSize:10,color:"var(--text2)",marginBottom:2},fi:{width:"100%",padding:"5px 7px",background:"var(--input-bg)",color:"var(--text)",border:"1px solid var(--input-border)",borderRadius:5,fontSize:11,fontFamily:"inherit",boxSizing:"border-box",outline:"none"},ta:{width:"100%",padding:5,background:"var(--input-bg)",color:"var(--text)",border:"1px solid var(--input-border)",borderRadius:5,fontSize:11,fontFamily:"inherit",resize:"vertical",boxSizing:"border-box"},tblW:{overflowX:"auto",borderRadius:8,background:"var(--card)",border:"1px solid var(--card-border)"},tbl:{width:"100%",borderCollapse:"collapse"},th:{padding:"5px 6px",textAlign:"left",fontSize:8,fontWeight:600,color:"var(--text2)",textTransform:"uppercase",borderBottom:"1px solid var(--input-border)",background:"var(--card)",whiteSpace:"nowrap"},tr:{borderBottom:"1px solid var(--card-border)"},td:{padding:"3px 6px",whiteSpace:"nowrap",color:"var(--text)",verticalAlign:"middle"},tdB:{padding:"3px 6px",fontWeight:700,whiteSpace:"nowrap",color:"var(--text)",verticalAlign:"middle"},tdr:{padding:"3px 6px",textAlign:"right",fontVariantNumeric:"tabular-nums",whiteSpace:"nowrap",color:"var(--text)",verticalAlign:"middle"},dot:{width:5,height:5,borderRadius:"50%",display:"inline-block",marginRight:3,verticalAlign:"middle"},ci:{width:55,padding:"2px 4px",background:"var(--input-bg)",color:"var(--text)",border:"1px solid var(--input-border)",borderRadius:3,fontSize:10,fontFamily:"inherit",textAlign:"right",outline:"none"},overlay:{position:"fixed",inset:0,background:"var(--overlay)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,backdropFilter:"blur(6px)"},tosCode:{flex:1,padding:"4px 7px",background:"var(--input-bg)",border:"1px solid var(--card-border)",borderRadius:3,fontSize:10,color:"#fbbf24",fontFamily:"monospace"},vt:{margin:"0 0 10px",fontSize:14,fontWeight:700,color:"var(--text)"},sortBtn:{padding:"2px 7px",background:"none",border:"1px solid var(--card-border)",borderRadius:3,color:"var(--text3)",fontSize:9,fontFamily:"inherit",cursor:"pointer"},sortBtnAct:{background:"rgba(59,130,246,.1)",color:"var(--text)",borderColor:"rgba(59,130,246,.2)"}};
+
+// ── Storage (localStorage for GitHub Pages) ──
+const STORAGE_PREFIX="bos-vp-web-";
+function sG(k){try{const v=localStorage.getItem(STORAGE_PREFIX+k);return v?JSON.parse(v):null}catch{return null}}
+function sS(k,v){try{localStorage.setItem(STORAGE_PREFIX+k,JSON.stringify(v));return true}catch(e){console.warn("Storage write failed:",e);return false}}
+function sD(k){try{localStorage.removeItem(STORAGE_PREFIX+k)}catch{}}
+function isStorageOK(){return typeof localStorage!=="undefined"}
+
+
+// ── Stock Price Fetcher (Yahoo Finance via CORS proxy) ──
+// Error codes: E101=Yahoo CORS proxy fail, E105=tickers not found
+
+async function fetchPxYahoo(tickers,signal){
+  if(!tickers.length)return{};
+  const out={};const ts=Date.now();
+  const proxies=["https://corsproxy.io/?","https://api.allorigins.win/get?url=","https://api.codetabs.com/v1/proxy?quest="];
+  const queue=[...tickers];const workers=Math.min(6,queue.length);
+  const doOne=async()=>{while(queue.length){
+    if(signal?.aborted)return;
+    const tk=queue.shift();
+    const yUrl=`https://query1.finance.yahoo.com/v8/finance/chart/${tk}?interval=1d&range=1d&_=${ts}`;
+    for(const proxyBase of proxies){
+      if(signal?.aborted)return;
+      const isAllOrigins=proxyBase.includes("allorigins");
+      const isCodetabs=proxyBase.includes("codetabs");
+      const url=isCodetabs?`${proxyBase}${yUrl}`:isAllOrigins?`${proxyBase}${encodeURIComponent(yUrl)}`:`${proxyBase}${encodeURIComponent(yUrl)}`;
+      try{
+        const tc=new AbortController();const timer=setTimeout(()=>tc.abort(),6000);
+        if(signal){signal.addEventListener("abort",()=>tc.abort(),{once:true})}
+        const r=await fetch(url,{signal:tc.signal});clearTimeout(timer);
+        if(!r.ok)continue;
+        const raw=await r.json();
+        const body=raw.contents?JSON.parse(raw.contents):raw;
+        const meta=body?.chart?.result?.[0]?.meta;
+        const price=meta?.regularMarketPrice||body?.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(Boolean)?.slice(-1)?.[0];
+        if(price&&price>0){out[tk.toUpperCase()]=+price.toFixed(4);break;}
+      }catch{}
+    }
+  }};
+  try{await Promise.all(Array.from({length:workers},doOne))}catch{}
+  return out;
+}
+
+async function fetchPx(tickers,onProgress,signal,onStage){
+  if(!tickers.length)return{};
+  let out={};const errors=[];
+
+  // Phase 1: Yahoo Finance via CORS proxy
+  if(onStage)onStage("yahoo",0);
+  try{out=await fetchPxYahoo(tickers,signal)}catch{}
+  if(signal?.aborted)return out;
+  const yahooCount=Object.keys(out).length;
+  if(yahooCount>0&&onStage)onStage("yahoo-done",yahooCount);
+  let missing=tickers.filter(t=>!out[t]);
+  if(!missing.length){if(onProgress)onProgress(1,1,[]);return out;}
+  if(yahooCount===0)errors.push("E101: Yahoo CORS proxy 無回應");
+
+  if(missing.length>0)errors.push("E105: "+missing.join(",")+" 無法取得");
+  if(errors.length)out._errors=errors;
+  if(onProgress)onProgress(1,1,[]);
+  return out;
+}
+
+// ── Utils ──
+function newP(n){return{id:uid(),name:n,createdAt:td(),capital:10000,capitalMode:"fixed",benchmark:"SPY",holdings:{},cash:0,targets:{},prices:{},history:[],driftThreshold:5}}
+function calcNAV(h,px,c=0){let v=0;for(const[t,x]of Object.entries(h))v+=(x.shares||0)*(px[t]||0);return v+c}
+function calcPerf(hist){if(!hist.length)return{totalReturn:0,records:[],annReturn:null,maxDD:0};const base=hist[0].capital;const recs=hist.map((r,i)=>{const pv=i>0?hist[i-1].nav:base;return{...r,periodRet:pv>0?(r.nav/pv-1)*100:0,cumRet:base>0?(r.nav/base-1)*100:0}});const last=hist[hist.length-1],tr=base>0?(last.nav/base-1)*100:0,days=hist.length>1?(new Date(last.date)-new Date(hist[0].date))/864e5:0,yrs=days/365.25,ar=yrs>.1?(Math.pow(last.nav/base,1/yrs)-1)*100:null;let pk=0,mdd=0;recs.forEach(r=>{if(r.nav>pk)pk=r.nav;const dd=pk>0?(r.nav/pk-1)*100:0;if(dd<mdd)mdd=dd});return{totalReturn:tr,annReturn:ar,maxDD:mdd,records:recs}}
+function calcBP(h){if(h.length<2)return{totalReturn:0};const f=h.find(r=>r.benchPrice>0),l=[...h].reverse().find(r=>r.benchPrice>0);if(!f||!l||f===l)return{totalReturn:0};return{totalReturn:(l.benchPrice/f.benchPrice-1)*100}}
+function calcDrift(p){const tks=Object.keys(p.targets||{}).filter(tk=>(parseFloat(p.targets[tk])||0)>0);if(!tks.length)return{maxAbs:0,drifts:[],needRebal:false};const totalVal=tks.reduce((s,tk)=>s+(p.holdings[tk]?.shares||0)*(p.prices[tk]||0),0)+(p.cash||0);if(totalVal<=0)return{maxAbs:0,drifts:[],needRebal:false};const drifts=tks.map(tk=>{const actual=(p.holdings[tk]?.shares||0)*(p.prices[tk]||0)/totalVal*100;const target=parseFloat(p.targets[tk])||0;return{tk,target,actual:+actual.toFixed(2),drift:+(actual-target).toFixed(2)}}).sort((a,b)=>Math.abs(b.drift)-Math.abs(a.drift));const maxAbs=Math.max(...drifts.map(d=>Math.abs(d.drift)),0);return{maxAbs,drifts,needRebal:maxAbs>=(p.driftThreshold||5)}}
+function calcRisk(hist){const rets=[];for(let i=1;i<hist.length;i++){const pv=hist[i-1].nav,cv=hist[i].nav;if(pv>0)rets.push((cv/pv-1)*100)}if(rets.length<2)return null;const avg=rets.reduce((s,r)=>s+r,0)/rets.length;const std=Math.sqrt(rets.reduce((s,r)=>s+Math.pow(r-avg,2),0)/(rets.length-1));const downRets=rets.filter(r=>r<0);const downStd=downRets.length>1?Math.sqrt(downRets.reduce((s,r)=>s+r*r,0)/downRets.length):std;const sharpe=std>0?avg/std*Math.sqrt(12):0;const sortino=downStd>0?avg/downStd*Math.sqrt(12):0;const bRets=[];for(let i=1;i<hist.length;i++){const bp=hist[i-1].benchPrice,bc=hist[i].benchPrice;if(bp>0&&bc>0)bRets.push((bc/bp-1)*100)}let beta=null;if(bRets.length>=2&&bRets.length===rets.length){const bavg=bRets.reduce((s,r)=>s+r,0)/bRets.length;const num=rets.reduce((s,r,i)=>s+(r-avg)*(bRets[i]-bavg),0);const den=bRets.reduce((s,r)=>s+Math.pow(r-bavg,2),0);if(den>0)beta=num/den}return{sharpe:+sharpe.toFixed(2),sortino:+sortino.toFixed(2),beta:beta!=null?+beta.toFixed(2):null,volatility:+std.toFixed(2),avgReturn:+avg.toFixed(2),periods:rets.length}}
+function genTOS(o){return o.filter(x=>x.diff!==0&&x.price>0).map(x=>`${x.diff>0?"BUY":"SELL"} ${x.diff>0?"+":"-"}${Math.abs(x.diff)} ${x.tk} @${x.price.toFixed(2)} LMT`)}
+function sortOrd(o,sk,sd){const d=sd==="asc"?1:-1;return[...o].sort((a,b)=>{if(sk==="name")return d*a.tk.localeCompare(b.tk);if(sk==="cat"){const ai=CAT_ORD.indexOf(a.info.cat),bi=CAT_ORD.indexOf(b.info.cat);if(ai!==bi)return d*(ai-bi);return a.tk.localeCompare(b.tk)}if(sk==="pct")return d*((a.pct||0)-(b.pct||0));if(sk==="diff")return d*((a.diff||0)-(b.diff||0));return 0})}
+function parseBrokerCSV(text){
+  const cleaned=text.replace(/^\uFEFF/,"").trim();
+  const allLines=cleaned.split(/\r?\n/);
+  let headerIdx=allLines.findIndex(l=>/symbol|ticker|quantity|shares|stock/i.test(l));
+  if(headerIdx<0)return{holdings:[],errors:["找不到欄位標題行"]};
+  const dataLines=[];
+  for(let i=headerIdx+1;i<allLines.length;i++){
+    const l=allLines[i].trim();
+    if(!l||/^"?totals?|^"?account|^"?--/i.test(l))break;
+    dataLines.push(l);
+  }
+  if(!dataLines.length)return{holdings:[],errors:["沒有找到持倉資料"]};
+  const csvBlock=[allLines[headerIdx],...dataLines].join("\n");
+  const result=Papa.parse(csvBlock,{header:true,dynamicTyping:true,skipEmptyLines:true});
+  if(!result.data?.length)return{holdings:[],errors:["無法解析"]};
+  const headers=Object.keys(result.data[0]||{}).map(h=>h.trim().toLowerCase().replace(/"/g,""));
+  const origH=Object.keys(result.data[0]||{});
+  const findCol=ns=>headers.find(h=>ns.some(n=>h.includes(n)));
+  const gk=lc=>origH.find(k=>k.trim().toLowerCase().replace(/"/g,"")==lc);
+  const symCol=findCol(["symbol","ticker","stock","代碼","underlying"]);
+  const qtyCol=findCol(["quantity","shares","qty","股數","數量"]);
+  const pxCol=findCol(["price","market price","現價","last","mark"]);
+  const costCol=findCol(["cost basis","average cost","avg cost","avg price","成本","均價"]);
+  const typeCol=findCol(["security type","type","instrument","put/call"]);
+  if(!symCol)return{holdings:[],errors:["找不到 Symbol 欄位，請確認下載的是「倉位」CSV"]};
+  const holdings=[];
+  result.data.forEach(row=>{
+    const raw=String(row[gk(symCol)]||"").trim().replace(/"/g,"").toUpperCase();
+    if(!raw||raw==="-"||raw==="SYMBOL")return;
+    const qty=parseFloat(String(row[gk(qtyCol)]||"").replace(/[,$"]/g,""))||0;
+    const px=parseFloat(String(row[gk(pxCol)]||"").replace(/[,$"]/g,""))||0;
+    const cost=parseFloat(String(row[gk(costCol)]||"").replace(/[,$"]/g,""))||0;
+    const tp=typeCol?String(row[gk(typeCol)]||"").replace(/"/g,"").trim():"";
+    const isOpt=/call|put|option/i.test(tp)||/\s+\d{2}\/\d{2}\/\d{4}/.test(raw);
+    const ticker=raw.replace(/[^A-Z0-9]/g,"").slice(0,6);
+    if(ticker.length>=1&&Math.abs(qty)>=0.001)
+      holdings.push({ticker,shares:Math.abs(qty),price:px,avgCost:cost||px,type:isOpt?"option":"stock"});
+  });
+  return{holdings,errors:holdings.length?[]:["解析成功但沒有找到有效持倉"]};
+}
+
+// ── Confetti ──
+function launchConfetti(){const canvas=document.getElementById("cvs-confetti");if(!canvas)return;canvas.width=window.innerWidth;canvas.height=window.innerHeight;canvas.style.display="block";const ctx=canvas.getContext("2d");const colors=["#3b82f6","#f59e0b","#10b981","#ef4444","#8b5cf6","#ec4899","#06b6d4","#fbbf24"];const cx=canvas.width/2,cy=canvas.height*.45;const particles=[];for(let i=0;i<200;i++){const angle=Math.random()*Math.PI*2,speed=Math.random()*18+6,type=Math.random()<.3?"circle":"rect";particles.push({x:cx,y:cy,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed-10,w:Math.random()*14+4,h:Math.random()*7+3,color:colors[i%colors.length],rot:Math.random()*360,rotV:(Math.random()-.5)*12,op:1,gravity:.4,type})}let frame=0;function draw(){ctx.clearRect(0,0,canvas.width,canvas.height);let alive=false;particles.forEach(p=>{if(p.op<=0)return;alive=true;p.x+=p.vx;p.y+=p.vy;p.vy+=p.gravity;p.vx*=.99;p.rot+=p.rotV;if(frame>60)p.op-=.013;ctx.save();ctx.globalAlpha=Math.max(0,p.op);ctx.translate(p.x,p.y);ctx.rotate(p.rot*Math.PI/180);ctx.fillStyle=p.color;if(p.type==="circle")ctx.beginPath(),ctx.arc(0,0,p.w/2,0,Math.PI*2),ctx.fill();else ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h);ctx.restore()});frame++;if(alive&&frame<240)requestAnimationFrame(draw);else{ctx.clearRect(0,0,canvas.width,canvas.height);canvas.style.display="none";}}draw();}
+
+// ── Small UI components ──
+function GCard({children,style={},glow,hover=true,...props}){const[hov,setHov]=useState(false);return <div style={{background:"var(--card)",backdropFilter:"blur(12px)",border:"1px solid var(--card-border)",borderRadius:12,transition:"all .3s",transform:hov&&hover?"translateY(-2px)":"none",boxShadow:hov&&hover&&glow?`0 12px 40px rgba(0,0,0,.3),0 0 20px ${glow}33`:"0 4px 20px rgba(0,0,0,.15)",...style}} onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)} {...props}>{children}</div>;}
+function Modal({children,onClose}){return <div style={gs.overlay} onClick={onClose}><GCard style={{padding:24,width:"92%",maxWidth:520,maxHeight:"90vh",overflow:"auto",animation:"celebPop .3s ease"}} hover={false} onClick={e=>e.stopPropagation()}>{children}</GCard></div>}
+function RippleBtn({children,onClick,style,disabled}){const[ripples,setRipples]=useState([]);const ref=useRef(null);const hc=e=>{if(disabled)return;const r=ref.current.getBoundingClientRect();const id=Date.now();setRipples(p=>[...p,{id,x:e.clientX-r.left,y:e.clientY-r.top}]);setTimeout(()=>setRipples(p=>p.filter(x=>x.id!==id)),600);onClick&&onClick(e);};return <button ref={ref} style={{...style,position:"relative",overflow:"hidden"}} disabled={disabled} onClick={hc}>{children}{ripples.map(r=><span key={r.id} style={{position:"absolute",left:r.x-40,top:r.y-40,width:80,height:80,borderRadius:"50%",background:"rgba(255,255,255,.3)",animation:"rippleOut .6s ease-out forwards",pointerEvents:"none"}}/>)}</button>;}
+function MCard({l,v,c,icon}){return <GCard glow={c} style={{padding:"10px 12px"}}><div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:9,color:"var(--text2)",textTransform:"uppercase"}}>{l}</span>{icon&&<span style={{fontSize:12}}>{icon}</span>}</div><div style={{fontSize:16,fontWeight:800,color:c||"#e2e8f0",marginTop:2}}>{v}</div></GCard>}
+function SM({l,v,c}){return <div><span style={{fontSize:9,color:"var(--text2)",textTransform:"uppercase",display:"block"}}>{l}</span><span style={{fontSize:14,fontWeight:700,color:c||"#e2e8f0"}}>{v}</span></div>}
+function HelpTip({tips}){const[open,setOpen]=useState(false);return <div style={{position:"relative",display:"inline-block"}}><button onClick={()=>setOpen(!open)} style={{background:"none",border:"1px solid rgba(59,130,246,.2)",color:"#60a5fa",borderRadius:"50%",width:22,height:22,fontSize:11,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center"}}>{open?"▲":"?"}</button>{open&&<GCard hover={false} style={{position:"absolute",right:0,top:28,width:280,padding:14,zIndex:100,animation:"celebPop .2s ease"}}><div style={{fontSize:11,color:"var(--text2)",lineHeight:1.8}}>{tips.map((t,i)=><div key={i} style={{marginBottom:6,display:"flex",gap:6}}><span style={{color:"#3b82f6",flexShrink:0}}>•</span><span>{t}</span></div>)}</div><button onClick={()=>setOpen(false)} style={{marginTop:4,fontSize:10,color:"var(--text3)",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>收起 ▲</button></GCard>}</div>}
+function AnimNum({value,prefix="",suffix="",decimals=2,color}){const[disp,setDisp]=useState(0);const prev=useRef(0);useEffect(()=>{const start=prev.current,end=parseFloat(value)||0,dur=800,t0=Date.now();const step=()=>{const t=Math.min((Date.now()-t0)/dur,1),ease=1-Math.pow(1-t,3);setDisp(start+(end-start)*ease);if(t<1)requestAnimationFrame(step);else{setDisp(end);prev.current=end;}};step();},[value]);return <span style={{color,fontVariantNumeric:"tabular-nums"}}>{isNaN(disp)?"—":prefix+disp.toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g,",")+suffix}</span>;}
+function ViewSlide({children,viewKey}){const[anim,setAnim]=useState(false);useEffect(()=>{setAnim(true);const t=setTimeout(()=>setAnim(false),60);return()=>clearTimeout(t)},[viewKey]);return <div style={{animation:anim?"fadeSlideOut .06s ease":"fadeSlideIn .25s ease",animationFillMode:"both"}}>{children}</div>;}
+function SparkleStars({active}){const stars=useRef([]);const[,tick]=useState(0);useEffect(()=>{if(!active)return;stars.current=Array.from({length:8},(_,i)=>({id:i,angle:(i/8)*360,speed:.8+Math.random()*.4,size:3+Math.random()*4,op:Math.random()}));const t=setInterval(()=>{stars.current=stars.current.map(s=>({...s,angle:s.angle+s.speed,op:.3+.7*Math.abs(Math.sin(Date.now()*.002+s.id))}));tick(x=>x+1)},40);return()=>clearInterval(t)},[active]);if(!active)return null;return <div style={{position:"absolute",inset:0,pointerEvents:"none"}}>{stars.current.map(s=>{const rad=s.angle*Math.PI/180;return <div key={s.id} style={{position:"absolute",left:`${50+Math.cos(rad)*60}%`,top:`${50+Math.sin(rad)*120}%`,width:s.size,height:s.size,background:"#fbbf24",borderRadius:"50%",opacity:s.op,transform:"translate(-50%,-50%)",boxShadow:`0 0 ${s.size*2}px #fbbf24`}}/>})}</div>;}
+function FetchProgress({active,progress,stage}){
+  const[elapsed,setElapsed]=useState(0);const startRef=useRef(null);
+  useEffect(()=>{if(!active){setElapsed(0);startRef.current=null;return}
+    if(!startRef.current)startRef.current=Date.now();
+    const t=setInterval(()=>setElapsed(Math.floor((Date.now()-startRef.current)/1000)),500);
+    return()=>clearInterval(t)},[active]);
+  if(!active)return null;const pct=progress||0;const stageText=stage||"🔍 搜尋市場數據...";
+  const isDone=stageText.includes("✅");const isWaiting=stageText.includes("🤖")||stageText.includes("🔍")||stageText.includes("查詢")||stageText.includes("搜尋");
+  const isSearch=stageText.includes("🔍");
+  return <GCard hover={false} style={{padding:"10px 14px",marginBottom:8,borderColor:isDone?"rgba(34,197,94,.2)":isSearch?"rgba(245,158,11,.2)":"rgba(59,130,246,.2)"}}>
+    <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+      <span style={{fontSize:11,color:isDone?"#22c55e":isSearch?"#fbbf24":"#93c5fd",fontWeight:600,transition:"color .4s"}}>{stageText}</span>
+      <span style={{fontSize:9,color:isDone?"#22c55e":"#3b82f6"}}>{elapsed}s</span>
+    </div>
+    <div style={{height:3,background:"rgba(255,255,255,.06)",borderRadius:2,overflow:"hidden"}}>
+      {isDone
+        ?<div style={{height:"100%",borderRadius:2,background:"#22c55e",width:"100%",transition:"width .4s"}}/>
+        :pct>0
+        ?<div style={{height:"100%",borderRadius:2,background:isSearch?"linear-gradient(90deg,#f59e0b,#fbbf24,#f59e0b)":"linear-gradient(90deg,#3b82f6,#8b5cf6,#06b6d4)",backgroundSize:"200% 100%",animation:"gradShift 2s linear infinite",transition:"width .6s ease",width:`${pct}%`}}/>
+        :<div style={{height:"100%",borderRadius:2,background:"linear-gradient(90deg,transparent,#8b5cf6,#06b6d4,transparent)",backgroundSize:"300% 100%",animation:"gradShift 1.2s linear infinite",width:"100%",opacity:.6}}/>}
+    </div></GCard>;}
+function Particles(){const[pts]=useState(()=>Array.from({length:35},(_,i)=>({id:i,x:Math.random()*100,y:Math.random()*100,sz:Math.random()*4+1,dur:Math.random()*25+12,del:Math.random()*-25,op:Math.random()*.2+.05,c:["#3b82f6","#06b6d4","#8b5cf6","#10b981","#f59e0b","#ec4899"][i%6]})));return <div style={{position:"absolute",inset:0,overflow:"hidden",pointerEvents:"none"}}>{pts.map(p=><div key={p.id} style={{position:"absolute",left:`${p.x}%`,top:`${p.y}%`,width:p.sz,height:p.sz,borderRadius:"50%",background:p.c,opacity:p.op,animation:`float${p.id%4} ${p.dur}s ${p.del}s infinite ease-in-out`}}/>)}</div>;}
+function GlowOrbs(){return <><div style={{position:"absolute",width:600,height:600,borderRadius:"50%",background:"radial-gradient(circle,rgba(59,130,246,.1) 0%,transparent 70%)",top:"-20%",left:"-10%",animation:"orbFloat1 20s infinite ease-in-out",pointerEvents:"none"}}/><div style={{position:"absolute",width:400,height:400,borderRadius:"50%",background:"radial-gradient(circle,rgba(139,92,246,.08) 0%,transparent 60%)",bottom:"-10%",right:"-5%",animation:"orbFloat2 25s infinite ease-in-out",pointerEvents:"none"}}/></>}
+function PieChart({data,size=220}){if(!data.length)return null;const total=data.reduce((s,d)=>s+d.value,0);if(total<=0)return null;const cx=size/2,cy=size/2,R=size/2-12,r2=R*.58;let cum=-Math.PI/2;const slices=data.map((d,i)=>{const pct=d.value/total,angle=pct*2*Math.PI,sa=cum;cum+=angle;const ea=cum,x1=cx+R*Math.cos(sa),y1=cy+R*Math.sin(sa),x2=cx+R*Math.cos(ea),y2=cy+R*Math.sin(ea),ix1=cx+r2*Math.cos(ea),iy1=cy+r2*Math.sin(ea),ix2=cx+r2*Math.cos(sa),iy2=cy+r2*Math.sin(sa),large=angle>Math.PI?1:0,midA=sa+angle/2;return{...d,path:`M${ix2},${iy2} L${x1},${y1} A${R},${R} 0 ${large},1 ${x2},${y2} L${ix1},${iy1} A${r2},${r2} 0 ${large},0 ${ix2},${iy2} Z`,pct,lx:cx+R*.8*Math.cos(midA),ly:cy+R*.8*Math.sin(midA),color:d.color||PIE_COLORS[i%PIE_COLORS.length]}});return <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>{slices.map((s,i)=><path key={i} d={s.path} fill={s.color} stroke="rgba(10,14,23,.8)" strokeWidth="1.5"><title>{s.label}: {(s.pct*100).toFixed(1)}%</title></path>)}{slices.filter(s=>s.pct>.04).map((s,i)=><text key={"t"+i} x={s.lx} y={s.ly} textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={s.pct>.1?10:8} fontWeight="700" fontFamily="monospace">{s.label}</text>)}<circle cx={cx} cy={cy} r={r2-4} fill="rgba(10,14,23,.85)"/><text x={cx} y={cy-6} textAnchor="middle" fill="#e2e8f0" fontSize="14" fontWeight="800" fontFamily="monospace">{$f(total,0)}</text><text x={cx} y={cy+10} textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="monospace">TOTAL</text></svg>;}
+
+function LoadingScreen({onSkip}){const[step,setStep]=useState(0);const[showSkip,setShowSkip]=useState(false);useEffect(()=>{const t=setInterval(()=>setStep(s=>Math.min(s+1,3)),600);const s=setTimeout(()=>setShowSkip(true),4000);return()=>{clearInterval(t);clearTimeout(s)}},[]);return(<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100vh",background:"linear-gradient(135deg,var(--bg),var(--bg2))",position:"relative",overflow:"hidden"}}><style>{animCSS}</style><Particles/><GlowOrbs/><div style={{zIndex:2,textAlign:"center"}}><div style={{width:64,height:64,borderRadius:16,background:"linear-gradient(135deg,rgba(59,130,246,.15),rgba(139,92,246,.15))",border:"1px solid rgba(59,130,246,.2)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",animation:"logoFloat 3s ease-in-out infinite"}}><svg width="34" height="34" viewBox="0 0 44 44" fill="none"><path d="M22 4L38 13v18L22 40 6 31V13L22 4z" stroke="#3b82f6" strokeWidth="1.5" fill="none"/><path d="M14 20l4 4 12-10" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg></div><h2 style={{fontSize:20,fontWeight:800,margin:"0 0 2px",background:"linear-gradient(135deg,#3b82f6,#06b6d4)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",fontFamily:"monospace"}}>BOS Value Pro</h2><p style={{fontSize:11,color:"var(--text2)",margin:"2px 0 0",fontFamily:"monospace",letterSpacing:"0.5px"}}>一秒配置</p><div style={{display:"inline-flex",gap:5,background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.25)",borderRadius:10,padding:"2px 10px",marginTop:4}}><span style={{fontSize:9,color:"#fbbf24",fontWeight:700,letterSpacing:"1.5px"}}>WEB V4</span></div><div style={{width:200,height:4,background:"#1e293b",borderRadius:2,margin:"16px auto 10px",overflow:"hidden"}}><div style={{height:"100%",background:"linear-gradient(90deg,#3b82f6,#8b5cf6)",borderRadius:2,transition:"width .5s",width:`${(step+1)/4*100}%`}}/></div><p style={{fontSize:11,color:"var(--text3)",fontFamily:"monospace"}}>{["初始化系統...","載入組合資料...","連接雲端儲存...","準備就緒"][step]}</p>{showSkip&&<button onClick={onSkip} style={{marginTop:16,padding:"8px 20px",background:"rgba(59,130,246,.15)",border:"1px solid rgba(59,130,246,.3)",borderRadius:8,color:"#93c5fd",fontSize:11,cursor:"pointer",fontFamily:"monospace",fontWeight:600,animation:"fadeSlideIn .3s ease"}}>載入太久？點此跳過 →</button>}</div></div>);}
+
+// ══════════════════════ APP ROOT ══════════════════════
+function App(){
+  const[portfolios,setPortfolios]=useState([]);const[activeId,setActiveId]=useState(null);const[p,setP]=useState(null);
+  const[loading,setLoading]=useState(true);const[ready,setReady]=useState(false);
+  const[view,setView]=useState("rebalance");const[fetching,setFetching]=useState(false);
+  const[fetchProg,setFetchProg]=useState(0);const[fetchStage,setFetchStage]=useState("");
+  const[toast,setToast]=useState(null);const[showCreate,setShowCreate]=useState(false);
+  const[newName,setNewName]=useState("");const[sidebar,setSidebar]=useState(true);
+  const[cfg,setCfg]=useState({fontSize:13});const[theme,setTheme]=useState(()=>localStorage.getItem("bos-vp-theme")||"dark");const[lang,setLang]=useState(()=>localStorage.getItem("bos-vp-lang")||"zh");const[avatar,setAvatar]=useState(null);
+  const[celebMsg,setCelebMsg]=useState(null);const[watchlist,setWatchlist]=useState([]);const[plateKey,setPlateKey]=useState(0);const[selectedPlateId,setSelectedPlateId]=useState(null);
+  
+  const[editingName,setEditingName]=useState(false);const[editNameVal,setEditNameVal]=useState("");
+
+  useEffect(()=>{document.documentElement.setAttribute("data-theme",theme);localStorage.setItem("bos-vp-theme",theme)},[theme]);
+  useEffect(()=>{localStorage.setItem("bos-vp-lang",lang)},[lang]);
+  const showToast=(msg,type="success")=>{setToast({msg,type,id:Date.now()});setTimeout(()=>setToast(null),type==="error"?8000:type==="warn"?5000:3500)};
+  const celebrate=msg=>{launchConfetti();setCelebMsg(msg||"🎊 完成！");setTimeout(()=>setCelebMsg(null),3200)};
+
+  useEffect(()=>{
+    let mounted=true;
+    const maxTimer=setTimeout(()=>{if(mounted){setLoading(false);setTimeout(()=>{if(mounted)setReady(true)},1200)}},8000);
+    (async()=>{
+      try{
+        const rawIdx=await sG(PK)||[];
+        const idx=[...new Map(rawIdx.map(x=>[x.id,x])).values()];
+        if(idx.length!==rawIdx.length)await sS(PK,idx);
+        if(mounted)setPortfolios(idx);
+        // Load first portfolio + config/avatar/watchlist in parallel
+        const [firstP, c, av, w] = await Promise.all([
+          idx.length ? sG(PP+idx[0].id) : null,
+          sG(CK), sG(AVK), sG(WK)
+        ]);
+        if(mounted){
+          if(firstP){setP(firstP);setActiveId(idx[0].id)}
+          if(c)setCfg(prev=>({...prev,...c}));
+          if(av)setAvatar(av);
+          if(w)setWatchlist(w);
+        }
+      }catch(e){console.warn("Init error:",e)}
+      if(mounted){setLoading(false);setTimeout(()=>{if(mounted)setReady(true)},1200)}
+      clearTimeout(maxTimer);
+    })();
+    return()=>{mounted=false;clearTimeout(maxTimer)};
+  },[]);
+
+  
+  
+  const saveP=useCallback(async np=>{setP({...np});const ok=await sS(PP+np.id,np);if(!ok)console.warn("saveP failed for",np.id);return ok},[]);
+  const saveIdx=useCallback(async idx=>{setPortfolios([...idx]);const ok=await sS(PK,idx);if(!ok)console.warn("saveIdx failed");return ok},[]);
+  const saveCfg=async c=>{setCfg(c);await sS(CK,c);document.documentElement.style.fontSize=c.fontSize+"px"};
+  const saveAvatar=async av=>{setAvatar(av);await sS(AVK,av)};
+  const saveWatch=async w=>{setWatchlist(w);await sS(WK,w)};
+
+  const[creating,setCreating]=useState(false);
+  const createPort=async()=>{if(!newName.trim()||creating)return;setCreating(true);try{const np=newP(newName.trim());const idx=[...portfolios,{id:np.id,name:np.name}];await sS(PP+np.id,np);await saveIdx(idx);setP(np);setActiveId(np.id);setShowCreate(false);setNewName("");showToast("✅ 已建立")}catch(e){showToast("⚠️ 建立失敗，請重試","error");console.warn("createPort error:",e)}finally{setCreating(false)}};
+  const switchP=async id=>{try{const d=await sG(PP+id);if(d){setP(d);setActiveId(id);setView("rebalance")}else{showToast("⚠️ 無法載入組合資料","error")}}catch{showToast("⚠️ 載入失敗","error")}};
+  const deleteP=async id=>{try{const idx=portfolios.filter(x=>x.id!==id);await sD(PP+id);await saveIdx(idx);if(activeId===id){if(idx.length){const d=await sG(PP+idx[0].id);setP(d||null);setActiveId(idx[0].id)}else{setP(null);setActiveId(null)}}showToast("🗑 已刪除","warn")}catch{showToast("⚠️ 刪除失敗","error")}};
+  const fetchAbortRef=useRef(null);
+  const cancelFetch=()=>{
+    try{fetchAbortRef.current?.abort()}catch{}
+    fetchAbortRef.current=null;
+    setFetching(false);
+    setFetchProg(0);
+    setFetchStage("");
+  };
+  // FIX 3: removed duplicate setFetching(false) block
+  const fetchPrices=async port=>{const pp=port||p;if(!pp)return;const tks=new Set([...Object.keys(pp.targets||{}),...Object.keys(pp.holdings||{}).filter(k=>pp.holdings[k]?.shares>0),pp.benchmark||"SPY"]);if(!tks.size)return;setFetching(true);setFetchProg(0);setFetchStage("📡 嘗試 Yahoo Finance...");const ctrl=new AbortController();fetchAbortRef.current=ctrl;
+    const safetyTimer=setTimeout(()=>{if(!ctrl.signal.aborted)ctrl.abort()},90000);
+    let res={};
+    try{res=await fetchPx([...tks],(done,total)=>{if(ctrl.signal.aborted)return;const pct=Math.round((done/Math.max(total,1))*100);setFetchProg(pct);setFetchStage(pct>=100?`✅ 查詢完成！`:`🤖 已完成 ${done}/${total} 批`);},ctrl.signal,(stage,n)=>{if(ctrl.signal.aborted)return;
+      if(stage==="yahoo")setFetchStage("📡 Yahoo Finance...");
+      else if(stage==="yahoo-done")setFetchStage(`📡 Yahoo 取得 ${n} 檔`);
+    })}catch(e){if(e?.name!=="AbortError")console.warn("fetchPrices error:",e)}
+    clearTimeout(safetyTimer);
+    if(ctrl.signal.aborted&&!Object.keys(res).length){setFetching(false);setFetchProg(0);setFetchStage("");return;}
+    const errs=res._errors||[];delete res._errors;const pxCount=Object.keys(res).length;
+    if(pxCount){const u={...pp,prices:{...pp.prices,...res}};await saveP(u);showToast(`✅ ${pxCount} 檔已更新`+(errs.length?` (${errs.length}個錯誤)`:""))}
+    else showToast(`⚠️ ${location.protocol==="file:"?(lang==="en"?"Local test: use Paste Prices or deploy to GitHub Pages":"本地測試請用📝貼上股價，或部署到 GitHub Pages"):(lang==="en"?"Price fetch failed":"無法取得股價")} [${errs[0]||"E006"}]`,"error");
+    setFetching(false);setFetchProg(0);setFetchStage("")};
+  const[sidebarPlates,setSidebarPlates]=useState([]);
+  const loadSidebarPlates=async id=>{const pl=await sG(PLK+(id||activeId))||[];setSidebarPlates(pl);};
+  useEffect(()=>{if(activeId)loadSidebarPlates(activeId)},[activeId]);
+  const savePortName=async n=>{const t=(n||"").trim();if(!t||t===p.name){setEditingName(false);return;}const newIdx=portfolios.map(x=>x.id===p.id?{...x,name:t}:x);await saveIdx(newIdx);await saveP({...p,name:t});setEditingName(false);showToast("✅ 名稱已更新")};
+
+  if(loading||!ready)return <LoadingScreen onSkip={()=>{setLoading(false);setReady(true)}}/>;
+
+  const pv=p?calcNAV(p.holdings,p.prices,p.cash):0;
+  const cap=p?(p.capitalMode==="fixed"?p.capital:(pv||p.capital)):0;
+  const perf=p?calcPerf(p.history):{totalReturn:0,records:[]};
+  const benchP=p?calcBP(p.history):{totalReturn:0};
+  const drift=p?calcDrift(p):{maxAbs:0,drifts:[],needRebal:false};
+  const tabs=[["rebalance",t("rebalance",lang)],["plate",t("plate",lang)],["dashboard",t("dashboard",lang)],["watchlist",t("watchlist",lang)],["tools",t("tools",lang)],["journal",t("journal",lang)],["history",t("history",lang)],["guide",t("guide",lang)],["settings",t("settings",lang)]];
+
+  if(!portfolios.length&&!showCreate)return(<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100vh",background:"linear-gradient(135deg,var(--bg),var(--bg2))",position:"relative",overflow:"hidden",color:"var(--text)"}}><style>{animCSS}</style><Particles/><GlowOrbs/><div style={{textAlign:"center",zIndex:2,maxWidth:560,padding:"0 20px"}}><div style={{fontSize:72,marginBottom:12,animation:"logoFloat 4s ease-in-out infinite"}}>🏦</div><h1 style={{fontSize:34,fontWeight:900,margin:"0 0 4px",background:"linear-gradient(135deg,#3b82f6,#06b6d4,#8b5cf6)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",fontFamily:"monospace"}}>BOS Value Pro</h1><p style={{fontSize:13,color:"var(--text2)",margin:"2px 0 0",fontFamily:"monospace",letterSpacing:"1px"}}>一秒配置</p><div style={{display:"inline-flex",gap:6,background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.25)",borderRadius:10,padding:"3px 12px",marginBottom:20}}><span style={{fontSize:10,color:"#fbbf24",fontWeight:700,letterSpacing:"2px"}}>WEB V4</span></div><div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:28}}>{[{i:"📊",t:"智慧再平衡"},{i:"🍽",t:"菜盤配置"},{i:"📈",t:"績效分析"},{i:"📓",t:"交易日誌"},{i:"👀",t:"觀察清單"},{i:"🔮",t:"工具箱"}].map((f,i)=><GCard key={i} glow="#3b82f6" style={{padding:"18px 10px",animation:`cardIn .5s ${i*.07}s both`,cursor:"pointer",textAlign:"center"}} onClick={()=>setShowCreate(true)}><div style={{fontSize:30,marginBottom:6}}>{f.i}</div><div style={{fontSize:12,fontWeight:700,color:"var(--text)"}}>{f.t}</div></GCard>)}</div><RippleBtn style={{padding:"14px 36px",fontSize:14,fontWeight:700,borderRadius:14,background:"linear-gradient(135deg,#3b82f6,#7c3aed)",color:"#fff",border:"none",cursor:"pointer",boxShadow:"0 0 30px rgba(59,130,246,.3)",animation:"btnGlow 3s infinite",fontFamily:"monospace"}} onClick={()=>setShowCreate(true)}>{t("startUsing",lang)}</RippleBtn></div></div>);
+
+  return(<div style={{...gs.app,fontSize:cfg.fontSize}}><style>{animCSS}</style>
+    <canvas id="cvs-confetti" style={{position:"fixed",inset:0,zIndex:9998,display:"none",pointerEvents:"none"}}/>
+    {celebMsg&&<div style={{position:"fixed",top:"50%",left:"50%",transform:"translate(-50%,-50%)",zIndex:9997,textAlign:"center",pointerEvents:"none",animation:"celebPop .5s ease"}}><div style={{fontSize:52,animation:"celebBounce 1s infinite"}}>🎊</div><div style={{fontSize:18,fontWeight:900,color:"#fff",textShadow:"0 0 30px #fbbf24",fontFamily:"monospace"}}>{celebMsg}</div></div>}
+    {toast&&<div key={toast.id} style={{...gs.toast,background:toast.type==="error"?"rgba(127,29,29,.95)":toast.type==="warn"?"rgba(120,53,15,.95)":"rgba(6,78,59,.95)",borderColor:toast.type==="error"?"#ef4444":toast.type==="warn"?"#f59e0b":"#10b981"}}>{toast.msg}</div>}
+    
+    <aside style={{...gs.side,width:sidebar?195:44,minWidth:sidebar?195:44}}>
+      <div style={gs.sideHead}>{sidebar&&<div style={{display:"flex",alignItems:"center",gap:8}}>{avatar?<img src={avatar} style={{width:24,height:24,borderRadius:"50%",objectFit:"cover",border:"1px solid rgba(59,130,246,.3)"}}/>:<div style={{width:24,height:24,borderRadius:"50%",background:"linear-gradient(135deg,#3b82f6,#8b5cf6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#fff"}}>B</div>}<span style={gs.logo}>BOS VP</span></div>}<button style={gs.sideToggle} onClick={()=>setSidebar(!sidebar)}>{sidebar?"◀":"▶"}</button></div>
+      {sidebar&&<><div style={gs.sideLabel}>{t("myPortfolios",lang)}</div>{portfolios.map(pi=><button key={pi.id} onClick={()=>switchP(pi.id)} style={{...gs.sideItem,...(activeId===pi.id&&view!=="plate"?{background:"linear-gradient(90deg,rgba(59,130,246,.15),transparent)",color:"var(--text)",borderLeft:"2px solid #3b82f6"}:{borderLeft:"2px solid transparent"})}}>{pi.name}</button>)}<RippleBtn style={gs.sideAdd} onClick={()=>setShowCreate(true)}>{t("newPortfolio",lang)}</RippleBtn>
+        {sidebarPlates.length>0&&<><div style={{height:1,background:"rgba(255,255,255,.06)",margin:"8px 6px 4px"}}/><div style={gs.sideLabel}>{t("myPlates",lang)}</div>{sidebarPlates.map(pl=><button key={pl.id} onClick={()=>{setSelectedPlateId(pl.id);setPlateKey(k=>k+1);setView("plate")}} style={{...gs.sideItem,fontSize:10,...(view==="plate"?{background:"linear-gradient(90deg,rgba(139,92,246,.15),transparent)",color:"var(--text)",borderLeft:"2px solid #8b5cf6"}:{borderLeft:"2px solid transparent"})}} title={pl.name}><span style={{overflow:"hidden",textOverflow:"ellipsis"}}>🍽 {pl.name}</span></button>)}</>}
+        <div style={{flex:1}}/><button style={{...gs.sideItem,...(view==="overview"?{background:"rgba(59,130,246,.1)",color:"var(--text)"}:{})}} onClick={()=>setView("overview")}>{t("overview",lang)}</button></>}
+    </aside>
+    <div style={gs.mainW}>
+      {p&&<header style={gs.hdr}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          {editingName?<input autoFocus style={{...gs.fi,width:160,fontSize:Math.max(cfg.fontSize,14),fontWeight:700,padding:"2px 6px",borderColor:"rgba(59,130,246,.5)"}} value={editNameVal} onChange={e=>setEditNameVal(e.target.value)} onBlur={()=>savePortName(editNameVal)} onKeyDown={e=>{if(e.key==="Enter")savePortName(editNameVal);if(e.key==="Escape")setEditingName(false)}}/>
+          :<div style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer"}} onClick={()=>{setEditNameVal(p.name);setEditingName(true)}} title="點擊編輯名稱"><h2 style={{margin:0,fontSize:Math.max(cfg.fontSize,14),fontWeight:700,borderBottom:"1px dashed rgba(255,255,255,.15)"}}>{p.name}</h2><span style={{fontSize:10,color:"var(--text4)"}}>✏️</span></div>}
+          {drift.needRebal&&<span style={{fontSize:9,padding:"2px 8px",background:"rgba(239,68,68,.15)",border:"1px solid rgba(239,68,68,.3)",borderRadius:8,color:"#fca5a5",fontWeight:600,animation:"pulse 2s infinite",cursor:"pointer"}} onClick={()=>setView("rebalance")} title={`最大落差 ${drift.maxAbs.toFixed(1)}%`}>⚠️ 需再平衡</span>}
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+          <div style={{textAlign:"right"}}><div style={{fontSize:8,color:"var(--text2)",textTransform:"uppercase"}}>{t("nav",lang)}</div><div style={{fontWeight:700,fontSize:13}}><AnimNum value={pv} prefix="$" decimals={2}/></div></div>
+          <div style={{textAlign:"right"}}><div style={{fontSize:8,color:"var(--text2)",textTransform:"uppercase"}}>{t("capital",lang)}</div><div style={{fontWeight:700,fontSize:13}}><AnimNum value={cap} prefix="$" decimals={0}/></div></div>
+          {perf.totalReturn!==0&&<div style={{textAlign:"right"}}><div style={{fontSize:8,color:"var(--text2)",textTransform:"uppercase"}}>{t("cumReturn",lang)}</div><div style={{fontWeight:700,fontSize:13,color:perf.totalReturn>=0?"#22c55e":"#ef4444"}}><AnimNum value={perf.totalReturn} suffix="%" decimals={2} color={perf.totalReturn>=0?"#22c55e":"#ef4444"}/></div></div>}
+        </div>
+      </header>}
+      {p&&view!=="overview"&&<nav style={gs.nav}>{tabs.map(([k,l])=><button key={k} onClick={()=>setView(k)} style={{...gs.navTab,...(view===k?gs.navActive:{})}}>{l}{view===k&&<span style={{position:"absolute",bottom:0,left:"50%",transform:"translateX(-50%)",width:"60%",height:2,background:"linear-gradient(90deg,transparent,#3b82f6,transparent)",borderRadius:2}}/>}</button>)}</nav>}
+      <div style={gs.content}>
+        {showCreate&&<Modal onClose={()=>setShowCreate(false)}><div style={{textAlign:"center",marginBottom:14}}><div style={{fontSize:28}}>📊</div><h3 style={{margin:"4px 0 0",color:"var(--text)"}}>{t("createTitle",lang)}</h3></div><label style={gs.fl}>組合名稱</label><input style={gs.fi} value={newName} onChange={e=>setNewName(e.target.value)} placeholder={lang==="en"?"e.g. My Portfolio":"例：BOS 組合 V1"} autoFocus onKeyDown={e=>e.key==="Enter"&&!creating&&createPort()}/><div style={{display:"flex",gap:8,marginTop:16,justifyContent:"flex-end"}}><button style={gs.btnG} onClick={()=>setShowCreate(false)}>{t("cancel",lang)}</button><RippleBtn style={{...gs.btnP,opacity:newName.trim()&&!creating?1:.4}} onClick={createPort} disabled={!newName.trim()||creating}>{creating?<span style={{display:"flex",alignItems:"center",gap:4}}><span style={{animation:"spin .8s linear infinite",display:"inline-block"}}>⟳</span>建立中...</span>:"🚀 建立"}</RippleBtn></div></Modal>}
+        <ViewSlide viewKey={view}>
+          {view==="overview"&&<OverviewV portfolios={portfolios} switchP={switchP}/>}
+          {p&&view==="rebalance"&&<RebalV p={p} saveP={saveP} fetchPrices={fetchPrices} lang={lang} fetching={fetching} cancelFetch={cancelFetch} fetchProg={fetchProg} fetchStage={fetchStage} cap={cap} showToast={showToast} celebrate={celebrate} drift={drift}/>}
+          {p&&view==="plate"&&<PlateV lang={lang} key={plateKey} p={p} showToast={showToast} onPlatesChanged={()=>loadSidebarPlates(activeId)} initialPlateId={selectedPlateId}/>}
+          {p&&view==="dashboard"&&<DashV p={p} lang={lang} perf={perf} benchP={benchP}/>}
+          {p&&view==="watchlist"&&<WatchlistV watchlist={watchlist} saveWatch={saveWatch} showToast={showToast} lang={lang}/>}
+          {p&&view==="tools"&&<ToolsV p={p} lang={lang} perf={perf} portfolios={portfolios} showToast={showToast}/>}
+          {p&&view==="journal"&&<JournalV p={p} showToast={showToast} lang={lang}/>}
+          
+          {p&&view==="history"&&<HistV p={p} saveP={saveP} showToast={showToast} lang={lang}/>}
+          {p&&view==="guide"&&<GuideV lang={lang}/>}
+          {p&&view==="settings"&&<SetV p={p} saveP={saveP} deleteP={deleteP} portfolios={portfolios} saveIdx={saveIdx} showToast={showToast} cfg={cfg} saveCfg={saveCfg} avatar={avatar} saveAvatar={saveAvatar} watchlist={watchlist} theme={theme} setTheme={setTheme} lang={lang} setLang={setLang}/>}
+        </ViewSlide>
+      </div>
+    </div>
+  </div>);
+}
+
+function OverviewV({portfolios,switchP}){const[data,setData]=useState([]);useEffect(()=>{(async()=>{const r=[];for(const pi of portfolios){const d=await sG(PP+pi.id);if(d){const nav=calcNAV(d.holdings,d.prices,d.cash);const pf=calcPerf(d.history);r.push({...pi,nav,data:d,...pf,cnt:d.history.length})}}setData(r)})()},[portfolios]);
+  const mergedH={},mergedCat={};let totalNav=0;data.forEach(d=>{totalNav+=d.nav;Object.entries(d.data?.holdings||{}).filter(([,h])=>h.shares>0).forEach(([tk,h])=>{const px=d.data.prices[tk]||0,mv=h.shares*px;mergedH[tk]=(mergedH[tk]||0)+mv;const cat=getA(tk).cat;mergedCat[cat]=(mergedCat[cat]||0)+mv})});
+  const topH=Object.entries(mergedH).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  return <div><h2 style={gs.vt}>🏠 全部組合總覽</h2>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:9,marginBottom:14}}><MCard l="總淨值" v={$f(totalNav)} c="#3b82f6" icon="💎"/><MCard l="組合數" v={data.length+""} icon="📊"/><MCard l="總資產" v={Object.keys(mergedH).length+"檔"} icon="🏷"/></div>
+    {Object.keys(mergedCat).length>0&&<GCard style={{padding:12,marginBottom:12}}><h3 style={gs.pt}>🌐 全資產類別分布</h3><div style={{display:"flex",borderRadius:6,overflow:"hidden",height:28}}>{Object.entries(mergedCat).sort((a,b)=>b[1]-a[1]).map(([cat,mv])=>{const pct=totalNav>0?mv/totalNav*100:0;const info=Object.values(ASSET_DB).find(a=>a.cat===cat);return pct>1?<div key={cat} style={{width:pct+"%",background:info?.c||"#64748b",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"#fff",transition:"width .3s"}} title={`${cat}: ${pct.toFixed(1)}%`}>{pct>8?`${cat} ${pct.toFixed(0)}%`:""}</div>:null})}</div></GCard>}
+    {topH.length>0&&<GCard style={{padding:12,marginBottom:12}}><h3 style={gs.pt}>🏆 跨組合持倉 TOP 10</h3><table style={gs.tbl}><thead><tr><th style={gs.th}>資產</th><th style={gs.th}>類別</th><th style={gs.th}>總市值</th><th style={gs.th}>佔比</th></tr></thead><tbody>{topH.map(([tk,mv],i)=>{const info=getA(tk);return <tr key={tk} style={{...gs.tr,animation:`slideInL .2s ${i*.04}s both`}}><td style={gs.tdB}><span style={{...gs.dot,background:info.c}}/>{tk}</td><td style={{...gs.td,color:info.c,fontSize:10}}>{info.cat}</td><td style={gs.tdr}>{$f(mv)}</td><td style={gs.tdr}>{totalNav>0?Nf(mv/totalNav*100)+"%":"—"}</td></tr>})}</tbody></table></GCard>}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:12}}>{data.map((d,i)=><GCard key={d.id} glow={d.totalReturn>=0?"#22c55e":"#ef4444"} style={{padding:14,cursor:"pointer",animation:`cardIn .4s ${i*.08}s both`}} onClick={()=>switchP(d.id)}><div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><b style={{color:"var(--text)"}}>{d.name}</b><span style={{fontWeight:800,color:d.totalReturn>=0?"#22c55e":"#ef4444"}}>{Pf(d.totalReturn)}</span></div><div style={{display:"flex",gap:12,fontSize:11,color:"var(--text2)"}}><span>{$f(d.nav)}</span><span>{d.cnt}次</span></div></GCard>)}</div></div>;}
+
+function RebalV({p,saveP,fetchPrices,lang="zh",fetching,cancelFetch,fetchProg,fetchStage,cap,showToast,celebrate,drift}){
+  const[showImp,setShowImp]=useState(false);const[impTxt,setImpTxt]=useState("");const[showAdd,setShowAdd]=useState(false);
+  const[execMode,setExecMode]=useState(false);const[actPx,setActPx]=useState({});const[actShares,setActShares]=useState({});
+  const[manualShares,setManualShares]=useState({});const[execNote,setExecNote]=useState("");
+  const[customTk,setCustomTk]=useState("");const[showTOS,setShowTOS]=useState(false);
+  const[copied,setCopied]=useState(null);const[sortKey,setSortKey]=useState("cat");const[sortDir,setSortDir]=useState("asc");
+  const[shareOverrides,setShareOverrides]=useState({});
+  const[showQuickPx,setShowQuickPx]=useState(false);const[quickPxTxt,setQuickPxTxt]=useState("");
+  const parseQuickPx=()=>{const px={};const text=quickPxTxt.toUpperCase().replace(/：/g,":").replace(/＝/g,"=").replace(/\$/g,"");
+    // Support: SPY:596.47 or SPY=596.47 or SPY 596.47 (one per line or space-separated)
+    const re=/([A-Z_]{1,6})\s*[:=]?\s*(\d+(?:\.\d+)?)/g;let m;
+    while((m=re.exec(text))!==null){const n=parseFloat(m[2]);if(n>0)px[m[1]]=n}
+    if(Object.keys(px).length){saveP({...p,prices:{...p.prices,...px}});setShowQuickPx(false);setQuickPxTxt("");showToast(`✅ 已更新 ${Object.keys(px).length} 檔股價`)}else showToast("格式錯誤，範例：SPY:596.47","error")};
+  const cap2=p.capitalMode==="fixed"?p.capital:(cap||p.capital);
+  const totalPct=Object.values(p.targets).reduce((s,v)=>s+(parseFloat(v)||0),0);
+  const isValid=Math.abs(totalPct-100)<0.01;
+  const setTgt=(tk,rv)=>{const t={...p.targets};if(rv===""||rv==null)delete t[tk];else{const n=parseFloat(rv);t[tk]=isNaN(n)?0:n}setShareOverrides(prev=>{const n={...prev};delete n[tk];return n});saveP({...p,targets:t})};
+  const setPx=(tk,v)=>{setShareOverrides(prev=>{const n={...prev};delete n[tk];return n});saveP({...p,prices:{...p.prices,[tk]:parseFloat(v)||0}})};
+  const rmAsset=tk=>{const t={...p.targets};delete t[tk];const h={...p.holdings};delete h[tk];setShareOverrides(prev=>{const n={...prev};delete n[tk];return n});saveP({...p,targets:t,holdings:h})};
+  const parseImp=()=>{const a={};const text=impTxt.toUpperCase().replace(/％/g,"%").replace(/：/g,":");const re=/([A-Z]{1,6})\s*:?\s*(\d+(?:\.\d+)?)\s*%/g;let m;while((m=re.exec(text))!==null)a[m[1]]=parseFloat(m[2]);if(Object.keys(a).length){setShareOverrides({});saveP({...p,targets:a});setShowImp(false);setImpTxt("");showToast("已匯入 "+Object.keys(a).length+" 檔")}else showToast("格式錯誤","error")};
+  const addAsset=tk=>saveP({...p,targets:{...p.targets,[tk]:10}});
+  const allTks=[...new Set([...Object.keys(p.targets),...Object.keys(p.holdings).filter(k=>p.holdings[k]?.shares>0)])];
+  const rawO=allTks.map(tk=>{const info=getA(tk),px=p.prices[tk]||0,cur=p.holdings[tk]?.shares||0,avg=p.holdings[tk]?.avgCost||0,pct=parseFloat(p.targets[tk])||0,tv=cap2*(pct/100),autoSh=px>0?Math.floor(tv/px):0,tsh=shareOverrides[tk]!=null?shareOverrides[tk]:autoSh,isManual=shareOverrides[tk]!=null,diff=tsh-cur;return{tk,info,price:px,cur,avg,pct,tv,tsh,autoSh,isManual,diff,dv:diff*px}});
+  const orders=sortOrd(rawO,sortKey,sortDir);
+  const sumBuy=orders.filter(o=>o.diff>0).reduce((s,o)=>s+o.dv,0);const sumSell=Math.abs(orders.filter(o=>o.diff<0).reduce((s,o)=>s+o.dv,0));const invested=orders.reduce((s,o)=>s+o.tsh*o.price,0);
+  const hasPx=orders.filter(o=>o.pct>0).every(o=>o.price>0);const canExec=isValid&&hasPx;
+  const tosO=genTOS(orders);const tosAll=orders.filter(o=>o.tsh>0&&o.price>0).map(o=>`BUY +${o.tsh} ${o.tk} @${o.price.toFixed(2)} LMT`);
+  const startExec=()=>{const ap={},as={};orders.forEach(o=>{if(o.pct>0){ap[o.tk]=o.price;as[o.tk]=o.tsh}});setActPx(ap);setActShares(as);setManualShares({});setExecMode(true)};
+  const updateActPx=(tk,v)=>{const px=parseFloat(v)||0;setActPx(x=>({...x,[tk]:px}));if(!manualShares[tk]){const o=orders.find(x=>x.tk===tk);const sh=px>0&&o?Math.floor(cap2*(o.pct/100)/px):0;setActShares(x=>({...x,[tk]:sh}))}};
+  const updateActShares=(tk,v)=>{setActShares(x=>({...x,[tk]:parseInt(v)||0}));setManualShares(x=>({...x,[tk]:true}))};
+  const resetShares=tk=>{const o=orders.find(x=>x.tk===tk);const px=actPx[tk]||0;const sh=px>0&&o?Math.floor(cap2*(o.pct/100)/px):0;setActShares(x=>({...x,[tk]:sh}));setManualShares(x=>{const n={...x};delete n[tk];return n})};
+  const updateTargetShares=(tk,v)=>{const val=v===""?undefined:parseFloat(v);if(val===undefined||isNaN(val)){setShareOverrides(prev=>{const n={...prev};delete n[tk];return n})}else{setShareOverrides(prev=>({...prev,[tk]:Math.max(0,Math.round(val))}))}};
+  const resetTargetShares=tk=>{setShareOverrides(prev=>{const n={...prev};delete n[tk];return n})};
+  const confirmExec=async()=>{const nh={};let inv=0;for(const[tk,sh]of Object.entries(actShares)){const ep=actPx[tk]||0;if(sh>0&&ep>0){nh[tk]={shares:sh,avgCost:ep};inv+=sh*ep}}const prevShares={};for(const[t,h]of Object.entries(p.holdings))prevShares[t]=h.shares||0;const rec={id:uid(),date:td(),type:"rebalance",targets:{...p.targets},prices:{...p.prices},actualPrices:{...actPx},shares:{...actShares},prevShares,capital:cap2,nav:cap2,cash:cap2-inv,benchPrice:p.prices[p.benchmark]||0,notes:execNote};try{const ok=await saveP({...p,holdings:nh,cash:cap2-inv,history:[...p.history,rec]});setExecMode(false);setExecNote("");setShareOverrides({});if(ok)celebrate("🎊 下單並記錄完成！");else showToast("⚠️ 資料已套用但儲存可能未成功，建議匯出備份","warn")}catch(e){showToast("⚠️ 記錄失敗: "+e.message,"error")}};
+  const doCopy=txt=>{try{const ta=document.createElement("textarea");ta.value=txt;ta.style.cssText="position:fixed;left:-9999px";document.body.appendChild(ta);ta.select();document.execCommand("copy");document.body.removeChild(ta)}catch{}};
+  const toggleSort=key=>{if(sortKey===key)setSortDir(d=>d==="asc"?"desc":"asc");else{setSortKey(key);setSortDir("asc")}};
+  return <div>
+    {drift.needRebal&&<GCard hover={false} style={{padding:"8px 14px",marginBottom:10,borderColor:"rgba(239,68,68,.3)",background:"rgba(127,29,29,.15)"}}><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={{fontSize:12}}>⚠️</span><span style={{fontSize:11,fontWeight:700,color:"#fca5a5"}}>落差超過閾值 ({p.driftThreshold||5}%)</span>{drift.drifts.slice(0,3).map(d=><span key={d.tk} style={{fontSize:10,padding:"1px 6px",background:"rgba(239,68,68,.1)",borderRadius:4,color:d.drift>0?"#22c55e":"#ef4444"}}>{d.tk} {d.drift>0?"+":""}{d.drift}%</span>)}</div></GCard>}
+    <GCard style={{padding:"8px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",borderColor:"rgba(59,130,246,.15)"}}>
+      <span style={{fontSize:10,color:"var(--text2)",fontWeight:700}}>💰 資金設定</span>
+      <input type="number" style={{...gs.fi,width:110}} value={p.capital} onChange={e=>saveP({...p,capital:parseFloat(e.target.value)||0})}/>
+      <div style={{display:"flex",gap:10}}>{[["fixed","固定金額"],["dynamic","動態淨值"]].map(([v,l])=><label key={v} style={{display:"flex",gap:4,cursor:"pointer",fontSize:10,color:p.capitalMode===v?"#93c5fd":"#94a3b8",fontWeight:p.capitalMode===v?700:400}}><input type="radio" name="cm_reb" checked={p.capitalMode===v} onChange={()=>saveP({...p,capitalMode:v})}/>{l}</label>)}</div>
+      <span style={{marginLeft:"auto",fontSize:10,color:"var(--text4)"}}>實際投入: <b style={{color:"var(--text)"}}>{$f(cap2)}</b></span>
+    </GCard>
+    <div style={gs.ctrlBar}><div style={gs.ctrlG}><RippleBtn style={gs.btnP} onClick={()=>setShowImp(!showImp)}>{t("importSignal",lang)}</RippleBtn><RippleBtn style={{...gs.btnA,minWidth:90}} onClick={fetching?cancelFetch:()=>fetchPrices(p)}>{fetching?<span style={{display:"flex",alignItems:"center",gap:5}}><span style={{animation:"spin .8s linear infinite",display:"inline-block"}}>⟳</span>取消</span>:t("updatePrice",lang)}</RippleBtn><RippleBtn style={{...gs.btnG,color:"#fbbf24"}} onClick={()=>setShowQuickPx(!showQuickPx)}>{t("pastePrice",lang)}</RippleBtn><RippleBtn style={gs.btnG} onClick={()=>setShowAdd(!showAdd)}>{t("addAsset",lang)}</RippleBtn>{(tosO.length>0||tosAll.length>0)&&<RippleBtn style={{...gs.btnG,color:"#fbbf24"}} onClick={()=>setShowTOS(!showTOS)}>📋 TOS{tosO.length>0?` (${tosO.length})`:""}</RippleBtn>}</div><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{...gs.badge,background:isValid?"rgba(6,95,70,.8)":"rgba(124,45,18,.8)"}}>{totalPct.toFixed(1)}%</span><HelpTip tips={["貼上如 TQQQ:60% TMF:40% 自動匯入","AI 批次抓取即時市價（sandbox 可能較慢）","📝 貼上股價：從 Google 搜尋複製價格快速填入","配置合計 100% + 有股價後可下單記錄","點擊股數欄可手動修改，橘框=已修改"]}/></div></div>
+    <FetchProgress active={fetching} progress={fetchProg} stage={fetchStage}/>
+    {showQuickPx&&<GCard style={{padding:12,marginBottom:10,borderColor:"rgba(245,158,11,.2)"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:11,fontWeight:700,color:"#fbbf24"}}>{t("pastePrice",lang)}</span><span style={{fontSize:9,color:"var(--text3)"}}>格式：SPY:596.47 或 SPY 596.47（每行一檔或空白分隔）</span></div><textarea style={gs.ta} rows={3} value={quickPxTxt} onChange={e=>setQuickPxTxt(e.target.value)} placeholder={"SPY:596.47\nAAPL:243.50\nQQQ:520.30"}/><div style={{display:"flex",gap:6,marginTop:6}}><RippleBtn style={gs.btnP} onClick={parseQuickPx}>{t("apply",lang)}</RippleBtn><button style={gs.btnG} onClick={()=>{setShowQuickPx(false);setQuickPxTxt("")}}>{t("cancel",lang)}</button>{allTks.length>0&&<button style={{...gs.btnG,fontSize:9,color:"var(--text3)"}} onClick={()=>setQuickPxTxt(allTks.map(t=>`${t}:`).join("\n"))} title="自動填入代碼">{t("fillTickers",lang)}</button>}</div></GCard>}
+    {showImp&&<GCard style={{padding:12,marginBottom:10}}><p style={gs.hint}>支援: TQQQ:60% · TQQQ 60% · 全形％皆可</p><textarea style={gs.ta} rows={3} value={impTxt} onChange={e=>setImpTxt(e.target.value)} placeholder={"DBMF 20.0％\nSPHQ 20.0％"}/><RippleBtn style={{...gs.btnP,marginTop:6}} onClick={parseImp}>套用</RippleBtn></GCard>}
+    {showAdd&&<GCard style={{padding:12,marginBottom:10}}><div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>{Object.entries(ASSET_DB).filter(([t])=>p.targets[t]===undefined).slice(0,20).map(([t,i])=><button key={t} style={{...gs.chip,borderColor:i.c+"66",color:i.c}} onClick={()=>{addAsset(t);setShowAdd(false)}}>{t}</button>)}</div><div style={{display:"flex",gap:6}}><input style={{...gs.fi,flex:1}} value={customTk} onChange={e=>setCustomTk(e.target.value)} placeholder="自訂代碼" onKeyDown={e=>{if(e.key==="Enter"){const tk=customTk.trim().toUpperCase();if(tk){addAsset(tk);setCustomTk("");setShowAdd(false)}}}}/><RippleBtn style={gs.btnG} onClick={()=>{const tk=customTk.trim().toUpperCase();if(tk){addAsset(tk);setCustomTk("");setShowAdd(false)}}}>加入</RippleBtn></div></GCard>}
+    {showTOS&&(tosO.length>0||tosAll.length>0)&&<GCard style={{padding:12,marginBottom:10}}>{tosO.length>0&&<><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}><span style={{fontSize:10,fontWeight:700,color:"#fbbf24"}}>📋 差異訂單 ({tosO.length})</span><RippleBtn style={{...gs.btnP,fontSize:9,padding:"3px 9px"}} onClick={()=>{doCopy(tosO.join("\n"));setCopied("reb");showToast("已複製");setTimeout(()=>setCopied(null),2e3)}}>{copied==="reb"?"✅":"複製全部"}</RippleBtn></div>{tosO.map((cmd,i)=><div key={i} style={{display:"flex",gap:5,marginBottom:3}}><code style={gs.tosCode}>{cmd}</code><button style={{padding:"2px 8px",background:"#1e293b",color:"var(--text)",border:"1px solid #334155",borderRadius:4,cursor:"pointer",fontSize:9}} onClick={()=>{doCopy(cmd);setCopied("r"+i);showToast("✅");setTimeout(()=>setCopied(null),2e3)}}>{copied==="r"+i?"✅":"📋"}</button></div>)}</>}{tosAll.length>0&&<><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5,marginTop:tosO.length?10:0,paddingTop:tosO.length?8:0,borderTop:tosO.length?"1px solid rgba(255,255,255,.04)":"none"}}><span style={{fontSize:10,fontWeight:700,color:"#60a5fa"}}>📋 全倉目標訂單 ({tosAll.length})</span><RippleBtn style={{...gs.btnP,fontSize:9,padding:"3px 9px"}} onClick={()=>{doCopy(tosAll.join("\n"));setCopied("all");showToast("已複製");setTimeout(()=>setCopied(null),2e3)}}>{copied==="all"?"✅":"複製全部"}</RippleBtn></div>{tosAll.map((cmd,i)=><div key={i} style={{display:"flex",gap:5,marginBottom:3}}><code style={{...gs.tosCode,color:"#93c5fd"}}>{cmd}</code><button style={{padding:"2px 8px",background:"#1e293b",color:"var(--text)",border:"1px solid #334155",borderRadius:4,cursor:"pointer",fontSize:9}} onClick={()=>{doCopy(cmd);setCopied("a"+i);showToast("✅");setTimeout(()=>setCopied(null),2e3)}}>{copied==="a"+i?"✅":"📋"}</button></div>)}</>}</GCard>}
+    <div style={{display:"flex",gap:4,marginBottom:6}}>{[["cat","類別"],["name","名稱"],["pct","%"],["diff","差異"]].map(([k,l])=><button key={k} onClick={()=>toggleSort(k)} style={{...gs.sortBtn,...(sortKey===k?gs.sortBtnAct:{})}}>{l}{sortKey===k?(sortDir==="asc"?" ↑":" ↓"):""}</button>)}</div>
+    <div style={gs.tblW}><table style={gs.tbl}><thead><tr><th style={gs.th}>{t("asset",lang)}</th><th style={gs.th}>{t("category",lang)}</th><th style={{...gs.th,width:55}}>{t("targetPct",lang)}</th><th style={{...gs.th,width:75}}>{t("price",lang)}</th><th style={gs.th}>{t("targetAmt",lang)}</th><th style={{...gs.th,width:70}}>{t("shares",lang)}</th><th style={gs.th}>{t("current",lang)}</th><th style={gs.th}>{t("pnl",lang)}</th><th style={gs.th}>{t("diff",lang)}</th><th style={gs.th}>{t("adjAmt",lang)}</th><th style={{...gs.th,width:28}}></th></tr></thead><tbody>
+      {!orders.length?<tr><td colSpan={11} style={{padding:30,textAlign:"center",color:"var(--text2)"}}>匯入訊號或新增資產後開始使用</td></tr>
+      :orders.map((o,i)=>{const pnl=o.avg>0&&o.price>0?(o.price/o.avg-1)*100:null;return <tr key={o.tk} style={{...gs.tr,animation:`slideInL .2s ${i*.03}s both`}}><td style={gs.tdB}><span style={{...gs.dot,background:o.info.c}}/>{o.tk}</td><td style={{...gs.td,color:o.info.c}}>{o.info.cat}</td><td style={gs.td}><input type="number" style={gs.ci} value={p.targets[o.tk]??""} onChange={e=>setTgt(o.tk,e.target.value)} min={0} max={100}/></td><td style={gs.td}><input type="number" style={gs.ci} value={p.prices[o.tk]??""} onChange={e=>setPx(o.tk,e.target.value)} min={0} step={.01} placeholder="—"/></td><td style={gs.tdr}>{$f(o.tv)}</td><td style={gs.td}><div style={{display:"flex",gap:2,alignItems:"center"}}><input type="number" style={{...gs.ci,width:55,borderColor:o.isManual?"rgba(245,158,11,.5)":"rgba(255,255,255,.08)",background:o.isManual?"rgba(245,158,11,.06)":"rgba(10,14,23,.6)"}} value={o.tsh} onChange={e=>updateTargetShares(o.tk,e.target.value)} min={0} title={o.isManual?`自動=${o.autoSh}，已手動修改`:"自動計算"}/>{o.isManual&&<button style={{fontSize:8,padding:"1px 3px",background:"none",border:"none",color:"#f59e0b",cursor:"pointer"}} onClick={()=>resetTargetShares(o.tk)}>↺</button>}</div></td><td style={gs.tdr}>{o.cur||"—"}</td><td style={{...gs.tdr,color:pnl>0?"#22c55e":pnl<0?"#ef4444":"#64748b"}}>{pnl!=null?Pf(pnl):"—"}</td><td style={{...gs.tdr,fontWeight:700,color:o.diff>0?"#22c55e":o.diff<0?"#ef4444":"#64748b"}}>{o.diff>0?"+":""}{o.diff}</td><td style={{...gs.tdr,fontSize:10,color:o.diff>0?"#22c55e":o.diff<0?"#ef4444":"#64748b"}}>{o.diff!==0?$f(Math.abs(o.dv)):"—"}</td><td style={gs.td}><button style={gs.btnX} onClick={()=>rmAsset(o.tk)}>✕</button></td></tr>})}
+    </tbody></table></div>
+    {Object.keys(shareOverrides).length>0&&<div style={{display:"flex",alignItems:"center",gap:6,marginTop:6}}><span style={{fontSize:10,color:"#f59e0b"}}>⚠️ {Object.keys(shareOverrides).length} 檔已手動修改股數</span><button style={{fontSize:9,padding:"2px 8px",background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.3)",borderRadius:4,color:"#f59e0b",cursor:"pointer",fontFamily:"inherit"}} onClick={()=>setShareOverrides({})}>全部重置</button></div>}
+    {orders.length>0&&<GCard style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10,padding:"10px 14px",flexWrap:"wrap",gap:10}}><SM l={t("needBuy",lang)} v={$f(sumBuy)} c="#22c55e"/><SM l={t("needSell",lang)} v={$f(sumSell)} c="#ef4444"/><SM l={t("invest",lang)} v={$f(invested)}/><SM l={t("remaining",lang)} v={$f(cap2-invested)}/><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+  {!isValid&&<span style={{fontSize:9,color:"#f59e0b"}}>⚠️ 目標%需合計 100%（目前 {totalPct.toFixed(1)}%）</span>}
+  {isValid&&!hasPx&&<span style={{fontSize:9,color:"#f59e0b"}}>⚠️ 請填入所有目標資產的股價</span>}
+  <div style={{position:"relative"}}><SparkleStars active={canExec}/><RippleBtn style={{...gs.btnExec,opacity:canExec?1:.35,position:"relative",zIndex:1,background:canExec?"linear-gradient(135deg,#059669,#10b981,#34d399)":"linear-gradient(135deg,#374151,#4b5563)",boxShadow:canExec?"0 4px 20px rgba(16,185,129,.5)":"none",animation:canExec?"execPulse 2.5s infinite":"none"}} disabled={!canExec} onClick={startExec}>📋 下單並記錄</RippleBtn></div>
+</div></GCard>}
+    {execMode&&<Modal onClose={()=>setExecMode(false)}><h3 style={{margin:"0 0 4px",color:"var(--text)"}}>📋 確認下單並記錄</h3><p style={{fontSize:10,color:"var(--text2)",margin:"0 0 10px"}}>可修改成交價與股數，↺ 恢復自動計算</p><div style={{maxHeight:280,overflow:"auto"}}><table style={gs.tbl}><thead><tr><th style={gs.th}>資產</th><th style={gs.th}>市價</th><th style={{...gs.th,width:85}}>成交價</th><th style={{...gs.th,width:70}}>股數</th><th style={gs.th}>金額</th></tr></thead><tbody>{orders.filter(o=>o.pct>0).map(o=>{const ap=actPx[o.tk]||0,sh=actShares[o.tk]||0,isM=manualShares[o.tk];return <tr key={o.tk} style={gs.tr}><td style={gs.tdB}>{o.tk}</td><td style={gs.tdr}>{Nf(o.price)}</td><td style={gs.td}><input type="number" style={{...gs.ci,width:75}} value={actPx[o.tk]??""} onChange={e=>updateActPx(o.tk,e.target.value)} step={.01}/></td><td style={gs.td}><div style={{display:"flex",gap:2,alignItems:"center"}}><input type="number" style={{...gs.ci,width:50,borderColor:isM?"rgba(245,158,11,.4)":"rgba(255,255,255,.08)"}} value={sh} onChange={e=>updateActShares(o.tk,e.target.value)} min={0}/>{isM&&<button style={{fontSize:8,padding:"1px 3px",background:"none",border:"none",color:"var(--text2)",cursor:"pointer"}} onClick={()=>resetShares(o.tk)}>↺</button>}</div></td><td style={gs.tdr}>{ap&&sh?$f(ap*sh):"—"}</td></tr>})}</tbody></table></div><textarea style={{...gs.ta,marginTop:8}} rows={2} value={execNote} onChange={e=>setExecNote(e.target.value)} placeholder="備註..."/><div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:12}}><button style={gs.btnG} onClick={()=>setExecMode(false)}>取消</button><RippleBtn style={{...gs.btnExec,animation:"execPulse 2s infinite"}} onClick={confirmExec}>✅ 確認下單並記錄</RippleBtn></div></Modal>}
+  </div>;
+}
+
+// FIX 2: PlateV now allows totalPct <= 100% (remainder treated as cash)
+function PlateV({p,lang="zh",showToast,onPlatesChanged=()=>{},initialPlateId=null}){const stKey=PLK+p.id;const[plates,setPlates]=useState([]);const[active,setActive]=useState(null);const[amount,setAmount]=useState(10000);const[allocs,setAllocs]=useState({});const[prices,setPrices]=useState({});const[savedShares,setSavedShares]=useState({});const[fetching,setFetching]=useState(false);const[plateFetchProg,setPlateFetchProg]=useState(0);const[plateFetchStage,setPlateFetchStage]=useState("");const[shareOverrides,setShareOverrides]=useState({});const[addTk,setAddTk]=useState("");const[showAdd,setShowAdd]=useState(false);const[plateName,setPlateName]=useState("新菜盤");const[impTxt,setImpTxt]=useState("");const[showImp,setShowImp]=useState(false);const[showRebal,setShowRebal]=useState(false);const[aiResult]=useState("");const[copied,setCopied]=useState(null);const[editingPlateId,setEditingPlateId]=useState(null);const[editPlateNameVal,setEditPlateNameVal]=useState("");const[confirmDelPlateId,setConfirmDelPlateId]=useState(null);
+  useEffect(()=>{(async()=>{const d=await sG(stKey);if(d){setPlates(d);if(initialPlateId){const target=d.find(x=>x.id===initialPlateId);if(target){setActive(target.id);setPlateName(target.name);setAmount(target.amount);setAllocs(Object.fromEntries(Object.entries(target.allocs).map(([k,v])=>[k,String(v)])));setPrices(prev=>({...prev,...target.prices}));setSavedShares(prev=>({...prev,[target.id]:target.shares||{}}));setShareOverrides({})}}}})()},[stKey]);const savePlates=async list=>{setPlates(list);const ok=await sS(stKey,list);onPlatesChanged();return ok};const tickers=Object.keys(allocs);
+  const rows=tickers.map((tk,i)=>{const pct=parseFloat(allocs[tk])||0,px=prices[tk]||0,targetVal=amount*(pct/100),autoShares=px>0?Math.floor(targetVal/px):0,shares=shareOverrides[tk]!=null?shareOverrides[tk]:autoShares,isManual=shareOverrides[tk]!=null,actualVal=shares*px,info=getA(tk);return{tk,pct,px,targetVal,shares,autoShares,isManual,actualVal,info,color:PIE_COLORS[i%PIE_COLORS.length]}});
+  const totalPct=tickers.reduce((s,tk)=>s+(parseFloat(allocs[tk])||0),0);const activeTickers=tickers.filter(tk=>{const v=parseFloat(allocs[tk]);return!isNaN(v)&&v>0});
+  // FIX: allow 0% items (e.g. RSX 0%), only require at least 1 positive and total <= 100
+  const isValid=activeTickers.length>0&&totalPct>0&&Math.round(totalPct*100)/100<=100;
+  const cashPct=Math.max(0,100-totalPct);
+  const invested=rows.reduce((s,r)=>s+r.actualVal,0),cashLeft=amount-invested;
+  // Pie chart grouped by category
+  const catGrouped={};rows.filter(r=>r.pct>0).forEach(r=>{const cat=r.info.cat;if(!catGrouped[cat])catGrouped[cat]={label:cat,value:0,color:r.info.c,tickers:[]};catGrouped[cat].value+=(r.actualVal||r.targetVal);catGrouped[cat].tickers.push(r.tk)});
+  const pieData=Object.values(catGrouped).sort((a,b)=>b.value-a.value);if(cashPct>0.1&&invested>0)pieData.push({label:"現金",value:amount*(cashPct/100),color:"#1e293b"});
+  const tosOrders=rows.filter(r=>r.shares>0&&r.px>0).map(r=>`BUY +${r.shares} ${r.tk} @${r.px.toFixed(2)} LMT`);
+  const rebalRows=active&&savedShares[active]?tickers.map(tk=>{const old=savedShares[active]?.[tk]||0,curPx=prices[tk]||0,pct=parseFloat(allocs[tk])||0,targetVal=amount*(pct/100),newShares=curPx>0?Math.floor(targetVal/curPx):0,diff=newShares-old,curVal=old*curPx,drift=amount>0?(curVal/amount*100)-pct:0;return{tk,pct,old,curPx,newShares,diff,curVal,drift}}):[];
+  const rebalTOS=rebalRows.filter(r=>r.diff!==0&&r.curPx>0).map(r=>`${r.diff>0?"BUY":"SELL"} ${r.diff>0?"+":"-"}${Math.abs(r.diff)} ${r.tk} @${r.curPx.toFixed(2)} LMT`);
+  const doCopy=txt=>{try{const ta=document.createElement("textarea");ta.value=txt;ta.style.cssText="position:fixed;left:-9999px";document.body.appendChild(ta);ta.select();document.execCommand("copy");document.body.removeChild(ta)}catch{}};
+  const fetchAbortRef=useRef(null);
+  const cancelFetch=()=>{try{fetchAbortRef.current?.abort()}catch{}fetchAbortRef.current=null;setFetching(false);setPlateFetchProg(0);setPlateFetchStage("")};
+  const doFetch=async()=>{if(!tickers.length)return;cancelFetch();setFetching(true);setPlateFetchProg(0);setPlateFetchStage("📡 嘗試 Yahoo Finance...");const ctrl=new AbortController();fetchAbortRef.current=ctrl;try{const res=await fetchPx(tickers,(done,total)=>{if(ctrl.signal.aborted)return;const pct=Math.round((done/Math.max(total,1))*100);setPlateFetchProg(pct);setPlateFetchStage(pct>=100?`✅ 查詢完成！`:`🤖 已完成 ${done}/${total} 批`);},ctrl.signal,(stage,n)=>{if(ctrl.signal.aborted)return;
+      if(stage==="yahoo")setPlateFetchStage("📡 Yahoo Finance...");
+      else if(stage==="yahoo-done")setPlateFetchStage(`📡 Yahoo 取得 ${n} 檔`);
+    });if(ctrl.signal.aborted)return;const errs=res._errors||[];delete res._errors;const pxCount=Object.keys(res).length;
+    if(pxCount){setPrices(prev=>({...prev,...res}));setShareOverrides({});showToast(`✅ ${pxCount} 檔已更新`+(errs.length?` (${errs.length}個錯誤)`:""))}
+    else showToast(`⚠️ 無法取得股價 [${errs[0]||"E006"}]`,"error")}catch(e){if(e?.name!=="AbortError")console.warn("PlateV fetch error:",e)}finally{setFetching(false);setPlateFetchProg(0);setPlateFetchStage("")}};
+  const savePlate=async()=>{if(!isValid)return;const saveTks=tickers.filter(tk=>(parseFloat(allocs[tk])||0)>0);const plate={id:active||uid(),name:plateName,amount,allocs:Object.fromEntries(saveTks.map(tk=>[tk,parseFloat(allocs[tk])])),prices:Object.fromEntries(saveTks.map(tk=>[tk,prices[tk]||0])),shares:Object.fromEntries(rows.filter(r=>r.pct>0).map(r=>[r.tk,r.shares])),createdAt:active?plates.find(x=>x.id===active)?.createdAt||td():td(),updatedAt:td()};setSavedShares(prev=>({...prev,[plate.id]:plate.shares}));const ok=active?await savePlates(plates.map(x=>x.id===active?plate:x)):await savePlates([...plates,plate]);setActive(plate.id);setShareOverrides({});if(ok)showToast(cashPct>0.1?`💾 菜盤已儲存（含 ${cashPct.toFixed(1)}% 現金）`:"💾 菜盤已儲存");else showToast("⚠️ 菜盤已套用但儲存可能未成功","warn")};
+  const loadPlate=pl=>{setActive(pl.id);setPlateName(pl.name);setAmount(pl.amount);setAllocs(Object.fromEntries(Object.entries(pl.allocs).map(([k,v])=>[k,String(v)])));setPrices(prev=>({...prev,...pl.prices}));setSavedShares(prev=>({...prev,[pl.id]:pl.shares||{}}));setShareOverrides({});setShowRebal(false)};
+  const delPlate=id=>{savePlates(plates.filter(x=>x.id!==id));if(active===id){setActive(null);setAllocs({});setPlateName("新菜盤")}setConfirmDelPlateId(null);showToast("🗑 已刪除","warn")};
+  const renamePlate=(id,newName)=>{const t=newName.trim();if(!t){setEditingPlateId(null);return}savePlates(plates.map(x=>x.id===id?{...x,name:t}:x));if(active===id)setPlateName(t);setEditingPlateId(null);showToast("✅ 已更新名稱")};
+  const loadPreset=preset=>{setAllocs(Object.fromEntries(Object.entries(preset.allocs).map(([k,v])=>[k,String(v)])));setPlateName(preset.label);setActive(null);setShareOverrides({})};
+  const parseImp=()=>{const a={};const text=impTxt.toUpperCase().replace(/％/g,"%").replace(/：/g,":");const re=/([A-Z]{1,6})\s*:?\s*(\d+(?:\.\d+)?)\s*%/g;let m;while((m=re.exec(text))!==null)a[m[1]]=m[2];if(Object.keys(a).length){setAllocs(a);setShareOverrides({});setShowImp(false);setImpTxt("");showToast("已匯入 "+Object.keys(a).length+" 檔")}else showToast("格式錯誤","error")};
+
+  return <div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}><div style={{display:"flex",alignItems:"center",gap:8}}><h2 style={{...gs.vt,margin:0}}>🍽 菜盤配置</h2></div><div style={{display:"flex",gap:5}}><RippleBtn style={gs.btnP} onClick={()=>{setActive(null);setPlateName("新菜盤");setAmount(10000);setAllocs({});setPrices({});setShareOverrides({});setShowRebal(false)}}>🆕 新菜盤</RippleBtn><RippleBtn style={gs.btnG} onClick={()=>setShowImp(!showImp)}>📥 匯入</RippleBtn></div></div>
+    {plates.length>0&&<div style={{display:"flex",gap:6,marginBottom:10,overflowX:"auto",paddingBottom:4}}>{plates.map(pl=><GCard key={pl.id} glow={active===pl.id?"#3b82f6":undefined} style={{padding:"6px 12px",cursor:"pointer",flexShrink:0,borderColor:confirmDelPlateId===pl.id?"rgba(239,68,68,.4)":active===pl.id?"rgba(59,130,246,.3)":"rgba(255,255,255,.06)",background:confirmDelPlateId===pl.id?"rgba(127,29,29,.2)":undefined}} onClick={()=>{if(confirmDelPlateId)setConfirmDelPlateId(null);else loadPlate(pl)}}><div style={{display:"flex",alignItems:"center",gap:6}}>{confirmDelPlateId===pl.id?<><span style={{fontSize:10,color:"#fca5a5",fontWeight:600}}>刪除「{pl.name}」？</span><button style={{padding:"2px 8px",background:"#dc2626",color:"#fff",border:"none",borderRadius:4,cursor:"pointer",fontSize:9,fontWeight:700,fontFamily:"inherit"}} onClick={e=>{e.stopPropagation();delPlate(pl.id)}}>確定</button><button style={{...gs.btnG,fontSize:9,padding:"2px 6px"}} onClick={e=>{e.stopPropagation();setConfirmDelPlateId(null)}}>取消</button></>:<>{editingPlateId===pl.id?<input autoFocus style={{...gs.fi,width:100,fontSize:11,padding:"2px 5px",borderColor:"rgba(59,130,246,.5)"}} value={editPlateNameVal} onChange={e=>setEditPlateNameVal(e.target.value)} onClick={e=>e.stopPropagation()} onBlur={()=>renamePlate(pl.id,editPlateNameVal)} onKeyDown={e=>{if(e.key==="Enter")renamePlate(pl.id,editPlateNameVal);if(e.key==="Escape")setEditingPlateId(null)}}/>:<span style={{fontSize:11,fontWeight:active===pl.id?700:400,color:active===pl.id?"#e2e8f0":"#94a3b8",cursor:"pointer"}} onDoubleClick={e=>{e.stopPropagation();setEditingPlateId(pl.id);setEditPlateNameVal(pl.name)}} title="雙擊修改名稱">{pl.name}</span>}<span style={{fontSize:9,color:"var(--text4)"}}>{$f(pl.amount,0)}</span><button style={{...gs.btnG,fontSize:8,padding:"1px 4px"}} onClick={e=>{e.stopPropagation();setEditingPlateId(pl.id);setEditPlateNameVal(pl.name)}} title="修改名稱">✏️</button><button style={{...gs.btnX,fontSize:8}} onClick={e=>{e.stopPropagation();setConfirmDelPlateId(pl.id)}}>✕</button></>}</div></GCard>)}</div>}
+    {showImp&&<GCard style={{padding:12,marginBottom:10}}><p style={gs.hint}>格式: SPY:20% QQQ:10%</p><textarea style={gs.ta} rows={3} value={impTxt} onChange={e=>setImpTxt(e.target.value)}/><RippleBtn style={{...gs.btnP,marginTop:6}} onClick={parseImp}>套用</RippleBtn></GCard>}
+    {tickers.length===0&&<div style={{marginBottom:14}}>
+      <GCard hover={false} style={{padding:"14px 16px",marginBottom:10,borderColor:"rgba(59,130,246,.15)"}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#93c5fd",marginBottom:10}}>⚡ 快速套用預設配置</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>{QUICK_PLATES.map((pl,i)=><GCard key={i} glow="#3b82f6" style={{padding:"10px 12px",cursor:"pointer",animation:`cardIn .3s ${i*.07}s both`}} onClick={()=>loadPreset(pl)}><div style={{fontSize:20,marginBottom:4}}>{pl.icon}</div><div style={{fontSize:11,fontWeight:700,color:"var(--text)",marginBottom:2}}>{pl.label}</div><div style={{fontSize:10,color:"var(--text2)",marginBottom:6}}>{pl.desc}</div><div style={{display:"flex",gap:3,flexWrap:"wrap"}}>{Object.entries(pl.allocs).map(([t,v])=><span key={t} style={{fontSize:8,padding:"1px 4px",background:"rgba(59,130,246,.1)",borderRadius:4,color:"#93c5fd"}}>{t} {v}%</span>)}</div></GCard>)}</div>
+      </GCard>
+      <GCard style={{padding:14,borderColor:"rgba(59,130,246,.2)"}}>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--text)",marginBottom:8}}>✏️ 自建菜盤</div>
+        <div style={{display:"flex",gap:6,marginBottom:10}}>
+          <div style={{flex:1}}><label style={gs.fl}>菜盤名稱</label><input style={gs.fi} value={plateName} onChange={e=>setPlateName(e.target.value)} placeholder="例：我的積極組合"/></div>
+          <div style={{width:110}}><label style={gs.fl}>金額 (USD)</label><input type="number" style={gs.fi} value={amount} onChange={e=>{setAmount(parseFloat(e.target.value)||0);setShareOverrides({})}}/></div>
+        </div>
+        <div style={{fontSize:10,color:"var(--text2)",marginBottom:6}}>搜尋並加入標的：</div>
+        <div style={{display:"flex",gap:6,marginBottom:8}}>
+          <input style={{...gs.fi,flex:1,fontSize:12}} value={addTk} onChange={e=>setAddTk(e.target.value)} placeholder="輸入代碼，例：AAPL、TQQQ、SPY" onKeyDown={e=>{if(e.key==="Enter"){const tk=addTk.trim().toUpperCase();if(tk){setAllocs(prev=>({...prev,[tk]:"10"}));setAddTk("")}}}}/>
+          <RippleBtn style={{...gs.btnP,padding:"6px 14px",fontSize:11}} onClick={()=>{const tk=addTk.trim().toUpperCase();if(tk){setAllocs(prev=>({...prev,[tk]:"10"}));setAddTk("")}}}>➕ 加入</RippleBtn>
+        </div>
+        <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>{Object.entries(ASSET_DB).filter(([t])=>allocs[t]===undefined).slice(0,20).map(([t,i])=><button key={t} style={{...gs.chip,borderColor:i.c+"66",color:i.c,padding:"3px 8px",fontSize:9}} onClick={()=>setAllocs(prev=>({...prev,[t]:"10"}))}>{t}</button>)}</div>
+      </GCard>
+    </div>}
+    {showAdd&&<GCard style={{padding:12,marginBottom:10}}><div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>{Object.entries(ASSET_DB).filter(([t])=>allocs[t]===undefined).slice(0,24).map(([t,i])=><button key={t} style={{...gs.chip,borderColor:i.c+"66",color:i.c}} onClick={()=>{setAllocs(prev=>({...prev,[t]:"10"}));setShowAdd(false)}}>{t}</button>)}</div><div style={{display:"flex",gap:6}}><input style={{...gs.fi,flex:1}} value={addTk} onChange={e=>setAddTk(e.target.value)} placeholder="自訂代碼" onKeyDown={e=>{if(e.key==="Enter"){const tk=addTk.trim().toUpperCase();if(tk){setAllocs(prev=>({...prev,[tk]:"10"}));setAddTk("");setShowAdd(false)}}}}/><RippleBtn style={gs.btnG} onClick={()=>{const tk=addTk.trim().toUpperCase();if(tk){setAllocs(prev=>({...prev,[tk]:"10"}));setAddTk("");setShowAdd(false)}}}>加入</RippleBtn></div></GCard>}
+    {tickers.length>0&&<><div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:8,marginBottom:10,alignItems:"end"}}><div><label style={gs.fl}>菜盤名稱</label><input style={gs.fi} value={plateName} onChange={e=>setPlateName(e.target.value)}/></div><div><label style={gs.fl}>投資金額 (USD)</label><input type="number" style={gs.fi} value={amount} onChange={e=>{setAmount(parseFloat(e.target.value)||0);setShareOverrides({})}}/></div><div style={{display:"flex",gap:5,paddingBottom:1}}><RippleBtn style={{...gs.btnA,opacity:fetching?.5:1,minWidth:80}} onClick={fetching?cancelFetch:doFetch}>{fetching?<span style={{display:"flex",alignItems:"center",gap:4}}><span style={{animation:"spin .8s linear infinite",display:"inline-block"}}>⟳</span>取消</span>:t("updatePrice",lang)}</RippleBtn><RippleBtn style={{...gs.btnG,color:"#93c5fd"}} onClick={()=>setShowAdd(!showAdd)}>+ 資產</RippleBtn></div></div>
+    <FetchProgress active={fetching} progress={plateFetchProg} stage={plateFetchStage}/>
+    <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:14,marginBottom:12,alignItems:"start"}}><div style={gs.tblW}><table style={gs.tbl}><thead><tr><th style={gs.th}>資產</th><th style={gs.th}>類別</th><th style={{...gs.th,width:60}}>比例%</th><th style={{...gs.th,width:80}}>股價</th><th style={gs.th}>目標額</th><th style={{...gs.th,width:70}}>股數</th><th style={gs.th}>實際額</th></tr></thead><tbody>{rows.map(r=><tr key={r.tk} style={gs.tr}><td style={gs.tdB}><div style={{display:"flex",alignItems:"center",gap:4}}><button style={{background:"none",border:"none",color:"#ef4444",cursor:"pointer",padding:"0 2px",fontSize:11,lineHeight:1,fontFamily:"inherit",opacity:.6}} onClick={()=>{const a={...allocs};delete a[r.tk];setAllocs(a);setShareOverrides(prev=>{const n={...prev};delete n[r.tk];return n})}} title={`移除 ${r.tk}`}>✕</button><span style={{...gs.dot,background:r.info.c}}/>{r.tk}</div></td><td style={{...gs.td,color:r.info.c,fontSize:10}}>{r.info.cat}</td><td style={gs.td}><input type="number" style={{...gs.ci,borderColor:(allocs[r.tk]===""||allocs[r.tk]==="0")?"rgba(245,158,11,.4)":"rgba(255,255,255,.08)"}} value={allocs[r.tk]??""} onChange={e=>{setAllocs(prev=>({...prev,[r.tk]:e.target.value}));setShareOverrides(prev=>{const n={...prev};delete n[r.tk];return n})}} min={0} max={100}/></td><td style={gs.td}><input type="number" style={{...gs.ci,width:70}} value={prices[r.tk]??""} onChange={e=>{setPrices(prev=>({...prev,[r.tk]:parseFloat(e.target.value)||0}));setShareOverrides(prev=>{const n={...prev};delete n[r.tk];return n})}} min={0} step={.01} placeholder="—"/></td><td style={gs.tdr}>{$f(r.targetVal)}</td><td style={gs.td}><div style={{display:"flex",gap:2,alignItems:"center"}}><input type="number" style={{...gs.ci,width:55,borderColor:r.isManual?"rgba(245,158,11,.5)":"rgba(255,255,255,.08)",background:r.isManual?"rgba(245,158,11,.06)":"rgba(10,14,23,.6)"}} value={r.shares} onChange={e=>{const val=e.target.value===""?undefined:parseFloat(e.target.value);if(val===undefined||isNaN(val))setShareOverrides(prev=>{const n={...prev};delete n[r.tk];return n});else setShareOverrides(prev=>({...prev,[r.tk]:Math.max(0,Math.round(val))}))}} min={0}/>{r.isManual&&<button style={{fontSize:8,padding:"1px 3px",background:"none",border:"none",color:"#f59e0b",cursor:"pointer"}} onClick={()=>setShareOverrides(prev=>{const n={...prev};delete n[r.tk];return n})}>↺</button>}</div></td><td style={gs.tdr}>{r.px>0?$f(r.actualVal):"—"}</td></tr>)}</tbody></table></div><div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6}}><PieChart data={pieData} size={200}/><div style={{display:"flex",flexDirection:"column",gap:2}}>{pieData.map((d,i)=><div key={d.label} style={{display:"flex",alignItems:"center",gap:5,fontSize:10}}><div style={{width:8,height:8,borderRadius:2,background:d.color}}/><span style={{color:"var(--text)",minWidth:35}}>{d.label}</span><span style={{color:"var(--text2)"}}>{d.tickers?d.tickers.join(", "):""}</span></div>)}</div></div></div>
+    <GCard style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",marginBottom:10,flexWrap:"wrap",gap:10}}><SM l={t("invest",lang)} v={$f(invested)}/><SM l={t("remaining",lang)} v={$f(cashLeft)} c={cashLeft<0?"#ef4444":"#94a3b8"}/><SM l="配置" v={totalPct.toFixed(1)+"%"+(cashPct>0.1?` (現金${cashPct.toFixed(1)}%)`:"")} c={isValid?"#22c55e":Math.round(totalPct*100)/100>100?"#ef4444":"#f59e0b"}/><div style={{display:"flex",gap:5,flexWrap:"wrap"}}><RippleBtn style={{...gs.btnExec,opacity:isValid?1:.35}} disabled={!isValid} onClick={savePlate}>💾 儲存菜盤</RippleBtn>{active&&savedShares[active]&&<RippleBtn style={gs.btnA} onClick={()=>setShowRebal(!showRebal)}>📐 再平衡檢查</RippleBtn>}</div></GCard>
+    {!isValid&&tickers.length>0&&<div style={{fontSize:10,color:Math.round(totalPct*100)/100>100?"#ef4444":"#f59e0b",marginBottom:8}}>{Math.round(totalPct*100)/100>100?`⚠️ 配置超過 100%（${totalPct.toFixed(1)}%），請調降比例`:`💡 目前配置 ${totalPct.toFixed(1)}%，剩餘 ${cashPct.toFixed(1)}% 視為現金部位`}</div>}
+    {tosOrders.length>0&&<GCard style={{padding:12,marginBottom:10}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}><span style={{fontSize:11,fontWeight:700,color:"#fbbf24"}}>📋 TOS</span><RippleBtn style={{...gs.btnP,fontSize:10}} onClick={()=>{doCopy(tosOrders.join("\n"));setCopied("tos");showToast("✅");setTimeout(()=>setCopied(null),2e3)}}>{copied==="tos"?"✅":"複製"}</RippleBtn></div>{tosOrders.map((cmd,i)=><div key={i} style={{display:"flex",gap:6,marginBottom:3}}><code style={gs.tosCode}>{cmd}</code></div>)}</GCard>}
+    {showRebal&&rebalRows.length>0&&<GCard glow="#8b5cf6" style={{padding:14,marginBottom:10}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><h3 style={{...gs.pt,margin:0,color:"#a78bfa"}}>📐 再平衡檢查</h3><div style={{fontSize:10,color:"var(--text2)",marginRight:"auto",marginLeft:8}}>比較上次儲存 vs 當前股價的落差</div>{rebalTOS.length>0&&<RippleBtn style={{...gs.btnP,fontSize:10}} onClick={()=>{doCopy(rebalTOS.join("\n"));setCopied("rtos");showToast("✅");setTimeout(()=>setCopied(null),2e3)}}>{copied==="rtos"?"✅":"📋 TOS"}</RippleBtn>}</div><table style={gs.tbl}><thead><tr><th style={gs.th}>資產</th><th style={gs.th}>目標%</th><th style={gs.th}>原股</th><th style={gs.th}>現價</th><th style={gs.th}>現值</th><th style={gs.th}>落差</th><th style={gs.th}>新股</th><th style={gs.th}>調整</th></tr></thead><tbody>{rebalRows.map(r=><tr key={r.tk} style={gs.tr}><td style={gs.tdB}>{r.tk}</td><td style={gs.tdr}>{r.pct}%</td><td style={gs.tdr}>{r.old}</td><td style={gs.tdr}>{r.curPx>0?Nf(r.curPx):"—"}</td><td style={gs.tdr}>{$f(r.curVal)}</td><td style={{...gs.tdr,color:Math.abs(r.drift)>2?(r.drift>0?"#22c55e":"#ef4444"):"#94a3b8",fontWeight:Math.abs(r.drift)>2?700:400}}>{r.drift>0?"+":""}{Nf(r.drift,1)}%</td><td style={gs.tdr}>{r.newShares}</td><td style={{...gs.tdr,fontWeight:800,color:r.diff>0?"#22c55e":r.diff<0?"#ef4444":"#64748b"}}>{r.diff>0?"+":""}{r.diff}</td></tr>)}</tbody></table>{rebalRows.every(r=>r.diff===0)&&<div style={{textAlign:"center",padding:12,color:"#22c55e",fontWeight:600}}>✅ 配置完全吻合！</div>}</GCard>}
+    
+    </>}
+  </div>;
+}
+
+function DashV({p,perf,benchP,lang="zh"}){const{records,totalReturn,annReturn,maxDD}=perf;const risk=calcRisk(p.history);
+  const[plates,setPlates]=useState([]);useEffect(()=>{(async()=>{const d=await sG(PLK+p.id);if(d)setPlates(d)})()},[p.id]);
+  const platePerf=plates.map(pl=>{const shares=pl.shares||{},savePx=pl.prices||{};const init=Object.entries(shares).reduce((s,[tk,sh])=>s+(sh*(savePx[tk]||0)),0);const cur=Object.entries(shares).reduce((s,[tk,sh])=>s+(sh*(p.prices[tk]||savePx[tk]||0)),0);return{...pl,init,cur,ret:init>0?(cur/init-1)*100:0}});
+  const hList=Object.entries(p.holdings).filter(([,h])=>h.shares>0).map(([tk,h])=>{const px=p.prices[tk]||0;return{tk,...h,px,mv:h.shares*px,pnl:px>0&&h.avgCost>0?(px/h.avgCost-1)*100:0}}).sort((a,b)=>b.mv-a.mv);const tmv=hList.reduce((s,h)=>s+h.mv,0);
+  const catMap={};hList.forEach(h=>{const c=getA(h.tk).cat;catMap[c]=(catMap[c]||0)+h.mv});
+  return <div>
+    <h2 style={{...gs.vt,margin:"0 0 10px"}}>📈 績效與風險</h2>
+    {records.length<2&&<GCard hover={false} style={{padding:"12px 16px",marginBottom:14,borderColor:"rgba(245,158,11,.2)"}}><div style={{display:"flex",gap:10}}><span style={{fontSize:18}}>💡</span><div style={{fontSize:10,color:"#d97706",lineHeight:1.8}}>① 再平衡頁設定配置 → 更新股價 → 下單並記錄<br/>② 累計兩筆以上才能計算績效與風險指標</div></div></GCard>}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:9,marginBottom:14}}>{[{l:"累計報酬",v:Pf(totalReturn),c:totalReturn>=0?"#22c55e":"#ef4444",icon:"💰"},{l:"年化報酬",v:annReturn!=null?Pf(annReturn):"—",c:(annReturn||0)>=0?"#22c55e":"#ef4444",icon:"📅"},{l:"最大回撤",v:Nf(maxDD)+"%",c:"#ef4444",icon:"📉"},{l:p.benchmark,v:Pf(benchP.totalReturn),c:benchP.totalReturn>=0?"#60a5fa":"#ef4444",icon:"🏷"},{l:"超額 α",v:Pf(totalReturn-benchP.totalReturn),c:totalReturn-benchP.totalReturn>=0?"#22c55e":"#ef4444",icon:"⚡"}].map((d,i)=><MCard key={i} {...d}/>)}</div>
+    {risk&&<GCard style={{padding:12,marginBottom:12}}><h3 style={gs.pt}>📊 風險指標 ({risk.periods} 期)</h3><div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:8}}>{[{l:"Sharpe Ratio",v:risk.sharpe.toFixed(2),c:risk.sharpe>1?"#22c55e":risk.sharpe>0.5?"#f59e0b":"#ef4444"},{l:"Sortino Ratio",v:risk.sortino.toFixed(2),c:risk.sortino>1.5?"#22c55e":"#f59e0b"},{l:"Beta",v:risk.beta!=null?risk.beta.toFixed(2):"—",c:risk.beta!=null?(Math.abs(risk.beta)>1.5?"#f87171":"#34d399"):undefined},{l:"波動率",v:risk.volatility.toFixed(2)+"%",c:"#fbbf24"},{l:"期均報酬",v:risk.avgReturn.toFixed(2)+"%",c:risk.avgReturn>=0?"#22c55e":"#ef4444"}].map((d,i)=><div key={i} style={{padding:"8px 10px",background:"var(--input-bg)",borderRadius:8,border:"1px solid var(--card-border)"}}><div style={{fontSize:8,color:"var(--text3)",textTransform:"uppercase",marginBottom:2}}>{d.l}</div><div style={{fontSize:16,fontWeight:800,color:d.c||"#e2e8f0"}}>{d.v}</div></div>)}</div></GCard>}
+    {Object.entries(catMap).length>0&&<GCard style={{padding:12,marginBottom:12}}><h3 style={gs.pt}>類別分布</h3><div style={{display:"flex",borderRadius:6,overflow:"hidden",height:22}}>{Object.entries(catMap).sort((a,b)=>b[1]-a[1]).map(([cat,mv])=>{const pct=tmv>0?mv/tmv*100:0;const info=Object.values(ASSET_DB).find(a=>a.cat===cat);return pct>1?<div key={cat} style={{width:pct+"%",background:info?.c||"#64748b",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:700,color:"#fff"}}>{pct>10?cat:""}</div>:null})}</div></GCard>}
+    {records.length>1&&<GCard style={{padding:12,marginBottom:12}}><h3 style={gs.pt}>淨值走勢</h3><div style={{display:"flex",alignItems:"flex-end",gap:2,height:100}}>{(()=>{const ns=records.map(r=>r.nav);const mx=Math.max(...ns),mn=Math.min(...ns),rg=mx-mn||1;return records.map((r,i)=>{const h=((r.nav-mn)/rg)*100,up=r.nav>=(records[i-1]?.nav??r.nav);return <div key={i} style={{flex:1,height:"100%",display:"flex",alignItems:"flex-end",minWidth:3}} title={`${r.date} ${$f(r.nav)}`}><div style={{width:"100%",height:`${Math.max(h,3)}%`,borderRadius:"2px 2px 0 0",background:up?"#22c55e":"#ef4444"}}/></div>})})()}</div></GCard>}
+    {platePerf.length>0&&<GCard style={{padding:12,marginBottom:12}}><h3 style={gs.pt}>🍽 菜盤績效</h3><table style={gs.tbl}><thead><tr><th style={gs.th}>菜盤</th><th style={gs.th}>金額</th><th style={gs.th}>初始</th><th style={gs.th}>現值</th><th style={gs.th}>報酬</th></tr></thead><tbody>{platePerf.map(pl=><tr key={pl.id} style={gs.tr}><td style={gs.tdB}>{pl.name}</td><td style={gs.tdr}>{$f(pl.amount)}</td><td style={gs.tdr}>{$f(pl.init)}</td><td style={gs.tdr}>{$f(pl.cur)}</td><td style={{...gs.tdr,fontWeight:700,color:pl.ret>=0?"#22c55e":"#ef4444"}}>{Pf(pl.ret)}</td></tr>)}</tbody></table></GCard>}
+    {hList.length>0&&<GCard style={{padding:12}}><h3 style={gs.pt}>持倉明細</h3><table style={gs.tbl}><thead><tr><th style={gs.th}>資產</th><th style={gs.th}>股數</th><th style={gs.th}>市值</th><th style={gs.th}>佔比</th><th style={gs.th}>損益</th></tr></thead><tbody>{hList.map(h=><tr key={h.tk} style={gs.tr}><td style={gs.tdB}><span style={{...gs.dot,background:getA(h.tk).c}}/>{h.tk}</td><td style={gs.tdr}>{h.shares}</td><td style={gs.tdr}>{$f(h.mv)}</td><td style={gs.tdr}>{tmv>0?Nf(h.mv/tmv*100)+"%":"—"}</td><td style={{...gs.tdr,color:h.pnl>=0?"#22c55e":"#ef4444",fontWeight:600}}>{Pf(h.pnl)}</td></tr>)}</tbody></table></GCard>}
+  </div>;
+}
+
+function DividendV({p,showToast,lang="zh"}){const[divData,setDivData]=useState({});const[loading,setLoading]=useState(false);const[plates,setPlates]=useState([]);const[source,setSource]=useState("holdings");
+  useEffect(()=>{(async()=>{const d=await sG(PLK+p.id);if(d)setPlates(d)})()},[p.id]);
+  let srcTks=[],srcLabel="再平衡持倉";if(source==="holdings"){srcTks=Object.keys(p.holdings).filter(k=>p.holdings[k]?.shares>0);srcLabel="再平衡持倉"}else{const pl=plates.find(x=>x.id===source);if(pl){srcTks=Object.keys(pl.shares||{}).filter(k=>(pl.shares[k]||0)>0);srcLabel="菜盤："+pl.name}}
+  const getShPx=(tk)=>{if(source==="holdings"){const h=p.holdings[tk];return{sh:h?.shares||0,px:p.prices[tk]||0}}const pl=plates.find(x=>x.id===source);if(!pl)return{sh:0,px:0};return{sh:pl.shares?.[tk]||0,px:pl.prices?.[tk]||p.prices[tk]||0}};
+  const fetchDiv=async()=>{showToast("請在下方手動輸入股息資料","warn");setLoading(false)};
+  const rows=srcTks.map(tk=>{const{sh,px}=getShPx(tk),mv=sh*px,d=divData[tk.toUpperCase()]||divData[tk]||{};const yld=parseFloat(d.yield)||0;const annInc=mv*(yld/100);return{tk,sh,px,mv,...d,yield:yld,annInc,info:getA(tk)}});
+  const totalMV=rows.reduce((s,r)=>s+r.mv,0);const totalInc=rows.reduce((s,r)=>s+r.annInc,0);const avgYld=totalMV>0?(totalInc/totalMV*100):0;
+  return <div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
+      <select style={{...gs.fi,width:"auto",minWidth:160}} value={source} onChange={e=>setSource(e.target.value)}><option value="holdings">📊 再平衡持倉</option>{plates.map(pl=><option key={pl.id} value={pl.id}>🍽 {pl.name}</option>)}</select>
+      <RippleBtn style={{...gs.btnA,opacity:loading?.5:1}} onClick={fetchDiv} disabled={loading||!srcTks.length}>{loading?"⟳ 查詢中...":"🔍 查詢股息"}</RippleBtn>
+    </div>
+    {!srcTks.length?<GCard hover={false} style={{padding:20,textAlign:"center"}}><div style={{fontSize:36,marginBottom:8}}>💰</div><p style={{color:"var(--text3)"}}>先建立持倉</p></GCard>
+    :<><div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:9,marginBottom:14}}><MCard l="年化被動收入" v={$f(totalInc)} c="#22c55e" icon="💵"/><MCard l="組合殖利率" v={avgYld.toFixed(2)+"%"} c="#f59e0b" icon="📊"/><MCard l="月均收入" v={$f(totalInc/12)} c="#06b6d4" icon="📅"/></div>
+    <div style={gs.tblW}><table style={gs.tbl}><thead><tr><th style={gs.th}>資產</th><th style={gs.th}>股數</th><th style={gs.th}>市值</th><th style={gs.th}>殖利率</th><th style={gs.th}>頻率</th><th style={gs.th}>年化收入</th><th style={gs.th}>除息日</th></tr></thead><tbody>{rows.map((r,i)=><tr key={r.tk} style={{...gs.tr,animation:`slideInL .2s ${i*.04}s both`}}><td style={gs.tdB}><span style={{...gs.dot,background:r.info.c}}/>{r.tk}</td><td style={gs.tdr}>{r.sh}</td><td style={gs.tdr}>{$f(r.mv)}</td><td style={{...gs.tdr,color:r.yield>3?"#22c55e":r.yield>1?"#f59e0b":"#64748b",fontWeight:700}}>{r.yield?r.yield.toFixed(2)+"%":"—"}</td><td style={{...gs.td,fontSize:10}}>{r.freq==="monthly"?"每月":r.freq==="quarterly"?"每季":r.freq==="none"?"無配息":"—"}</td><td style={{...gs.tdr,fontWeight:600,color:"#22c55e"}}>{r.annInc>0?$f(r.annInc):"—"}</td><td style={{...gs.td,fontSize:10}}>{r.exDate||"—"}</td></tr>)}</tbody></table></div></>}
+  </div>;
+}
+
+function WatchlistV({watchlist,saveWatch,showToast,lang="zh"}){const[newTk,setNewTk]=useState("");const[target,setTarget]=useState("");const[fetching,setFetching]=useState(false);const[fetchStage,setFetchStage]=useState("");
+  const add=()=>{const tk=newTk.trim().toUpperCase();if(!tk)return;if(watchlist.find(w=>w.tk===tk)){showToast("已存在","warn");return}saveWatch([...watchlist,{tk,targetPx:parseFloat(target)||0,addedAt:td(),price:0}]);setNewTk("");setTarget("");showToast("✅ 已加入")};
+  const remove=tk=>saveWatch(watchlist.filter(w=>w.tk!==tk));
+  const updateTarget=(tk,v)=>saveWatch(watchlist.map(w=>w.tk===tk?{...w,targetPx:parseFloat(v)||0}:w));
+  const fetchAll=async()=>{const tks=watchlist.map(w=>w.tk);if(!tks.length)return;setFetching(true);setFetchStage("📡 取得股價中...");try{const res=await fetchPx(tks,(done,total)=>{setFetchStage(`🤖 已完成 ${done}/${total} 批`)},null,(stage,n)=>{
+      if(stage==="yahoo")setFetchStage("📡 Yahoo...");
+      else if(stage==="yahoo-done")setFetchStage(`📡 Yahoo 取得 ${n} 檔`);
+    });const errs=res._errors||[];delete res._errors;const pxCount=Object.keys(res).length;
+    if(pxCount){saveWatch(watchlist.map(w=>({...w,price:res[w.tk]||w.price})));showToast(`✅ ${pxCount} 檔已更新`+(errs.length?` (${errs.length}個錯誤)`:""))}
+    else showToast(`⚠️ 無法取得股價 [${errs[0]||"E006"}]`,"error")}catch(e){console.warn("WatchlistV fetch error:",e)}finally{setFetching(false);setFetchStage("")}};
+  return <div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}><h2 style={gs.vt}>👀 觀察清單</h2><RippleBtn style={{...gs.btnA,opacity:fetching?.5:1}} onClick={fetchAll} disabled={fetching||!watchlist.length}>{fetching?"⟳ 更新中":"🔍 更新價格"}</RippleBtn></div>
+    <FetchProgress active={fetching} progress={0} stage={fetchStage}/>
+    <GCard style={{padding:12,marginBottom:12}}><div style={{display:"flex",gap:6,alignItems:"end"}}><div style={{flex:1}}><label style={gs.fl}>代碼</label><input style={gs.fi} value={newTk} onChange={e=>setNewTk(e.target.value)} placeholder="AAPL" onKeyDown={e=>e.key==="Enter"&&add()}/></div><div style={{width:100}}><label style={gs.fl}>目標價</label><input type="number" style={gs.fi} value={target} onChange={e=>setTarget(e.target.value)} placeholder="可選"/></div><RippleBtn style={gs.btnP} onClick={add}>加入</RippleBtn></div></GCard>
+    {!watchlist.length?<GCard hover={false} style={{padding:20,textAlign:"center"}}><div style={{fontSize:36,marginBottom:8}}>👀</div><p style={{color:"var(--text3)"}}>加入你正在追蹤的標的</p></GCard>
+    :<div style={gs.tblW}><table style={gs.tbl}><thead><tr><th style={gs.th}>代碼</th><th style={gs.th}>類別</th><th style={gs.th}>現價</th><th style={{...gs.th,width:85}}>目標價</th><th style={gs.th}>距目標</th><th style={gs.th}>加入日</th><th style={{...gs.th,width:28}}></th></tr></thead><tbody>{watchlist.map((w,i)=>{const info=getA(w.tk),gap=w.price>0&&w.targetPx>0?((w.targetPx/w.price-1)*100):null,hit=gap!=null&&gap<=0;return <tr key={w.tk} style={{...gs.tr,background:hit?"rgba(34,197,94,.05)":"",animation:`slideInL .2s ${i*.04}s both`}}><td style={gs.tdB}><span style={{...gs.dot,background:info.c}}/>{w.tk}{hit&&<span style={{marginLeft:4,fontSize:10}}>🎯</span>}</td><td style={{...gs.td,color:info.c,fontSize:10}}>{info.cat}</td><td style={gs.tdr}>{w.price>0?$f(w.price):"—"}</td><td style={gs.td}><input type="number" style={{...gs.ci,width:75}} value={w.targetPx||""} onChange={e=>updateTarget(w.tk,e.target.value)} step={.01} placeholder="—"/></td><td style={{...gs.tdr,fontWeight:700,color:gap==null?"#64748b":gap<=0?"#22c55e":"#f59e0b"}}>{gap!=null?(gap>0?"+":"")+gap.toFixed(1)+"%":"—"}</td><td style={{...gs.td,fontSize:10,color:"var(--text3)"}}>{w.addedAt}</td><td style={gs.td}><button style={gs.btnX} onClick={()=>remove(w.tk)}>✕</button></td></tr>})}</tbody></table></div>}
+  </div>;
+}
+
+function ToolsV({p,perf,portfolios,showToast,lang="zh"}){const[tab,setTab]=useState("sim");
+  return <div>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}}><h2 style={{...gs.vt,margin:0}}>🔮 工具箱</h2><div style={{display:"flex",gap:3,flexWrap:"wrap"}}>{[["sim","📉 情境模擬"],["div","💰 股息"],["cal","📅 日曆"],["plan","🎯 目標規劃"],["cmp","⚖️ 組合比較"]].map(([k,l])=><button key={k} onClick={()=>setTab(k)} style={{...gs.navTab,padding:"5px 8px",...(tab===k?gs.navActive:{})}}>{l}</button>)}</div></div>
+    <GCard hover={false} style={{padding:"4px 12px",marginBottom:10,borderColor:"rgba(59,130,246,.1)"}}><div style={{fontSize:9,color:"var(--text4)"}}>{tab==="sim"?"用 Beta 值估算市場漲跌對組合的衝擊":tab==="div"?"查詢持倉的股息殖利率與年化被動收入":tab==="cal"?"月曆視圖顯示每次再平衡日期":tab==="plan"?"輸入目標金額反推達成年數":"選兩個組合並排比較績效"}</div></GCard>
+    {tab==="sim"&&<SimulatorV p={p}/>}
+    {tab==="div"&&<DividendV p={p} showToast={showToast} lang={lang}/>}
+    {tab==="cal"&&<CalendarV p={p}/>}
+    {tab==="plan"&&<PlannerV/>}
+    {tab==="cmp"&&<CompareV portfolios={portfolios}/>}
+  </div>;
+}
+
+function SimulatorV({p}){const[drop,setDrop]=useState(-20);
+  const hList=Object.entries(p.holdings).filter(([,h])=>h.shares>0).map(([tk,h])=>{const px=p.prices[tk]||0,mv=h.shares*px,info=getA(tk),beta=info.beta!=null?info.beta:1;const impact=mv*(beta*(drop/100));const newMV=mv+impact;return{tk,mv,beta,impact,newMV,pct:mv>0?(impact/mv*100):0,info}});
+  const totalMV=hList.reduce((s,h)=>s+h.mv,0);const totalImpact=hList.reduce((s,h)=>s+h.impact,0);const totalPct=totalMV>0?(totalImpact/totalMV*100):0;
+  return <div>
+    <GCard style={{padding:14,marginBottom:12}}><h3 style={gs.pt}>市場情境：SPY {drop>0?"+":""}{drop}%</h3><input type="range" min={-50} max={30} value={drop} onChange={e=>setDrop(+e.target.value)} style={{width:"100%",accentColor:drop>=0?"#22c55e":"#ef4444"}}/><div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"var(--text3)",marginTop:4}}><span>-50%</span><span style={{fontWeight:700,fontSize:14,color:drop>=0?"#22c55e":"#ef4444"}}>{drop>0?"+":""}{drop}%</span><span>+30%</span></div></GCard>
+    {!hList.length?<GCard hover={false} style={{padding:20,textAlign:"center"}}><p style={{color:"var(--text3)"}}>先建立持倉再模擬</p></GCard>
+    :<><div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:9,marginBottom:12}}><MCard l="預估組合衝擊" v={Pf(totalPct)} c={totalPct>=0?"#22c55e":"#ef4444"} icon="💥"/><MCard l="預估損益" v={$f(totalImpact)} c={totalImpact>=0?"#22c55e":"#ef4444"} icon="💰"/><MCard l="模擬後淨值" v={$f(totalMV+totalImpact)} icon="📊"/></div>
+    <div style={gs.tblW}><table style={gs.tbl}><thead><tr><th style={gs.th}>資產</th><th style={gs.th}>Beta</th><th style={gs.th}>現值</th><th style={gs.th}>預估衝擊</th><th style={gs.th}>模擬後</th></tr></thead><tbody>{hList.sort((a,b)=>a.impact-b.impact).map((h,i)=><tr key={h.tk} style={{...gs.tr,animation:`slideInL .2s ${i*.04}s both`}}><td style={gs.tdB}><span style={{...gs.dot,background:h.info.c}}/>{h.tk}</td><td style={{...gs.tdr,color:Math.abs(h.beta)>2?"#f87171":"#94a3b8"}}>{h.beta.toFixed(1)}x</td><td style={gs.tdr}>{$f(h.mv)}</td><td style={{...gs.tdr,fontWeight:700,color:h.impact>=0?"#22c55e":"#ef4444"}}>{$f(h.impact)} ({h.pct>0?"+":""}{h.pct.toFixed(1)}%)</td><td style={gs.tdr}>{$f(h.newMV)}</td></tr>)}</tbody></table></div></>}
+  </div>;
+}
+
+function PlannerV(){const[target,setTarget]=useState(100000);const[monthly,setMonthly]=useState(2000);const[initCap,setInitCap]=useState(10000);const[rate,setRate]=useState(10);
+  const r=rate/100/12;const months=r>0?Math.log((target*r+monthly)/(initCap*r+monthly))/Math.log(1+r):((target-initCap)/monthly);const years=Math.max(0,months/12);
+  const milestones=[];let bal=initCap;for(let y=1;y<=Math.ceil(years)+1&&y<=50;y++){bal=bal*Math.pow(1+rate/100,1)+monthly*12*((Math.pow(1+rate/100,1)-1)/(rate/100||1));milestones.push({year:y,bal});if(bal>=target)break}
+  return <div>
+    <GCard style={{padding:14,marginBottom:12}}><h3 style={gs.pt}>🎯 投資目標規劃器</h3><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}><div><label style={gs.fl}>目標金額 ($)</label><input type="number" style={gs.fi} value={target} onChange={e=>setTarget(+e.target.value)}/></div><div><label style={gs.fl}>初始資金 ($)</label><input type="number" style={gs.fi} value={initCap} onChange={e=>setInitCap(+e.target.value)}/></div><div><label style={gs.fl}>每月投入 ($)</label><input type="number" style={gs.fi} value={monthly} onChange={e=>setMonthly(+e.target.value)}/></div><div><label style={gs.fl}>預期年化報酬 (%)</label><input type="number" style={gs.fi} value={rate} onChange={e=>setRate(+e.target.value)} step={0.5}/></div></div></GCard>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:9,marginBottom:14}}><MCard l="預計達成" v={years<100?years.toFixed(1)+"年":"—"} c="#3b82f6" icon="⏰"/><MCard l="總投入" v={$f(initCap+monthly*12*years)} icon="💰"/><MCard l="投資收益" v={$f(target-initCap-monthly*12*years)} c="#22c55e" icon="📈"/></div>
+    <GCard style={{padding:12}}><h3 style={gs.pt}>里程碑</h3><div style={{display:"flex",alignItems:"flex-end",gap:3,height:120}}>{milestones.map((m,i)=>{const pct=Math.min(m.bal/target*100,100);const hit=m.bal>=target;return <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}><div style={{fontSize:8,color:hit?"#22c55e":"#64748b"}}>{hit?"🎯":""}</div><div style={{width:"100%",height:`${Math.max(pct,3)}%`,borderRadius:"3px 3px 0 0",background:hit?"#22c55e":"#3b82f6",transition:"height .3s"}} title={`第${m.year}年: ${$f(m.bal)}`}/><div style={{fontSize:7,color:"var(--text3)"}}>{m.year}</div></div>})}</div></GCard>
+  </div>;
+}
+
+function CompareV({portfolios}){const[sel,setSel]=useState([null,null]);const[data,setData]=useState([null,null]);
+  const load=async(idx,id)=>{const ns=[...sel];ns[idx]=id;setSel(ns);if(!id){const nd=[...data];nd[idx]=null;setData(nd);return}const d=await sG(PP+id);if(d){const nd=[...data];nd[idx]={...d,perf:calcPerf(d.history),bp:calcBP(d.history),risk:calcRisk(d.history)};setData(nd)}};
+  const labels=["累計報酬","年化報酬","最大回撤","Sharpe","Sortino","Beta","波動率","再平衡次數"];
+  const getVals=d=>{if(!d)return labels.map(()=>"—");const{perf,risk}=d;return[Pf(perf.totalReturn),perf.annReturn!=null?Pf(perf.annReturn):"—",Nf(perf.maxDD)+"%",risk?risk.sharpe.toFixed(2):"—",risk?risk.sortino.toFixed(2):"—",risk?.beta!=null?risk.beta.toFixed(2):"—",risk?risk.volatility.toFixed(2)+"%":"—",d.history.length+"次"]};
+  return <div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>{[0,1].map(i=><div key={i}><label style={gs.fl}>組合 {i+1}</label><select style={gs.fi} value={sel[i]||""} onChange={e=>load(i,e.target.value||null)}><option value="">選擇組合</option>{portfolios.map(pi=><option key={pi.id} value={pi.id}>{pi.name}</option>)}</select></div>)}</div>
+    {(data[0]||data[1])&&<div style={gs.tblW}><table style={gs.tbl}><thead><tr><th style={gs.th}>指標</th><th style={{...gs.th,textAlign:"center"}}>{data[0]?.name||"—"}</th><th style={{...gs.th,textAlign:"center"}}>{data[1]?.name||"—"}</th></tr></thead><tbody>{labels.map((l,i)=>{const v=getVals(data[0]),v2=getVals(data[1]);return <tr key={l} style={gs.tr}><td style={gs.tdB}>{l}</td><td style={{...gs.tdr,textAlign:"center"}}>{v[i]}</td><td style={{...gs.tdr,textAlign:"center"}}>{v2[i]}</td></tr>})}</tbody></table></div>}
+  </div>;
+}
+
+function CalendarV({p}){const[offset,setOffset]=useState(0);
+  const now=new Date();const viewDate=new Date(now.getFullYear(),now.getMonth()-offset,1);const year=viewDate.getFullYear(),month=viewDate.getMonth();
+  const daysInMonth=new Date(year,month+1,0).getDate();const startDay=new Date(year,month,1).getDay();
+  const monthStr=`${year}-${String(month+1).padStart(2,"0")}`;
+  const rebalDates={};p.history.forEach(r=>{const d=r.date;if(d?.startsWith(monthStr.slice(0,7))){const day=parseInt(d.slice(8,10));rebalDates[day]=r}});
+  const dayNames=["日","一","二","三","四","五","六"];
+  const cells=[];for(let i=0;i<startDay;i++)cells.push(null);for(let d=1;d<=daysInMonth;d++)cells.push(d);
+  return <div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}><div style={{display:"flex",gap:6,alignItems:"center"}}><RippleBtn style={gs.btnG} onClick={()=>setOffset(o=>o+1)}>◀</RippleBtn><span style={{fontSize:13,fontWeight:700,color:"var(--text)",minWidth:100,textAlign:"center"}}>{year}年{month+1}月</span><RippleBtn style={{...gs.btnG,opacity:offset>0?1:.3}} onClick={()=>setOffset(o=>Math.max(0,o-1))} disabled={offset<=0}>▶</RippleBtn></div></div>
+    <GCard style={{padding:14}}><div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4,marginBottom:8}}>{dayNames.map(d=><div key={d} style={{textAlign:"center",fontSize:10,fontWeight:700,color:"var(--text3)",padding:4}}>{d}</div>)}</div><div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>{cells.map((d,i)=>{const rec=d?rebalDates[d]:null;const isToday=d&&offset===0&&d===now.getDate();return <div key={i} style={{minHeight:48,padding:4,borderRadius:6,background:rec?"rgba(59,130,246,.12)":isToday?"rgba(34,197,94,.08)":"rgba(17,24,39,.3)",border:rec?"1px solid rgba(59,130,246,.3)":isToday?"1px solid rgba(34,197,94,.3)":"1px solid transparent"}} title={rec?`${rec.date}: ${$f(rec.nav)}`:""}>{d&&<><div style={{fontSize:11,fontWeight:isToday?800:400,color:isToday?"#22c55e":rec?"#93c5fd":"#94a3b8"}}>{d}</div>{rec&&<div style={{marginTop:2}}><div style={{fontSize:8,color:"#3b82f6",fontWeight:600}}>📊</div><div style={{fontSize:8,color:"var(--text2)"}}>{$f(rec.nav,0)}</div></div>}</>}</div>})}</div></GCard>
+    {Object.keys(rebalDates).length>0&&<GCard style={{padding:12,marginTop:10}}><h3 style={gs.pt}>本月紀錄</h3>{Object.entries(rebalDates).sort((a,b)=>a[0]-b[0]).map(([day,rec])=><div key={day} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid var(--card-border)"}}><span style={{fontSize:11,color:"var(--text)"}}>{rec.date}</span><span style={{fontSize:11,fontWeight:700,color:"#60a5fa"}}>{$f(rec.nav)}</span></div>)}</GCard>}
+  </div>;
+}
+
+function JournalV({p,showToast,lang="zh"}){const[entries,setEntries]=useState([]);const[showNew,setShowNew]=useState(false);const[editId,setEditId]=useState(null);const[form,setForm]=useState({date:td(),type:"rebalance",mood:3,confidence:5,marketSentiment:"neutral",notes:"",tags:""});const MDS=["😰","😟","😐","🙂","😎"];
+  useEffect(()=>{(async()=>{const d=await sG(JK+"-"+p.id);if(d)setEntries(d)})()},[p.id]);const save=async l=>{setEntries(l);await sS(JK+"-"+p.id,l)};
+  const submit=async()=>{if(editId){await save(entries.map(e=>e.id===editId?{...e,...form}:e));setEditId(null);showToast("📝 已更新")}else{await save([{...form,id:uid(),createdAt:new Date().toISOString()},...entries]);showToast("📓 已記錄")}setShowNew(false);setForm({date:td(),type:"rebalance",mood:3,confidence:5,marketSentiment:"neutral",notes:"",tags:""})};
+  const startEdit=e=>{setForm({date:e.date,type:e.type,mood:e.mood,confidence:e.confidence||5,marketSentiment:e.marketSentiment||"neutral",notes:e.notes||"",tags:e.tags||""});setEditId(e.id);setShowNew(true)};
+  const del=async id=>await save(entries.filter(e=>e.id!==id));const cc=v=>v<=3?"#ef4444":v<=5?"#eab308":v<=7?"#60a5fa":"#22c55e";
+  const display=entries.length>0?entries:DEMO_JOURNAL;
+  return <div><div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}><h2 style={gs.vt}>📓 交易日誌</h2><RippleBtn style={gs.btnP} onClick={()=>{setEditId(null);setForm({date:td(),type:"rebalance",mood:3,confidence:5,marketSentiment:"neutral",notes:"",tags:""});setShowNew(!showNew)}}>+ 新增紀錄</RippleBtn></div>
+    {entries.length>0&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:8,marginBottom:14}}><MCard l="情緒" v={MDS[Math.round(entries.reduce((s,e)=>s+e.mood,0)/entries.length)]||"😐"} icon="🧠"/><MCard l="信心" v={Nf(entries.reduce((s,e)=>s+(e.confidence||5),0)/entries.length,1)+"/10"} c={cc(entries.reduce((s,e)=>s+(e.confidence||5),0)/entries.length)} icon="💪"/><MCard l="紀錄" v={entries.length+"筆"} icon="📝"/></div>}
+    {showNew&&<GCard style={{padding:14,marginBottom:14,animation:"celebPop .25s ease"}}><h4 style={{margin:"0 0 8px",fontSize:12,color:"var(--text)"}}>{editId?"✏️ 編輯":"📝 新增"}</h4><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}><div><label style={gs.fl}>日期</label><input type="date" style={gs.fi} value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></div><div><label style={gs.fl}>類型</label><select style={gs.fi} value={form.type} onChange={e=>setForm({...form,type:e.target.value})}><option value="rebalance">再平衡</option><option value="win">獲利出場</option><option value="loss">停損出場</option><option value="observe">市場觀察</option></select></div></div>
+    <label style={gs.fl}>情緒 {MDS[form.mood]}</label><div style={{display:"flex",gap:4,marginBottom:8}}>{MDS.map((m,i)=><button key={i} style={{fontSize:20,background:form.mood===i?"rgba(59,130,246,.15)":"none",border:form.mood===i?"1px solid rgba(59,130,246,.3)":"1px solid transparent",borderRadius:8,padding:"3px 6px",cursor:"pointer"}} onClick={()=>setForm({...form,mood:i})}>{m}</button>)}</div>
+    <label style={gs.fl}>信心度: <b style={{color:cc(form.confidence)}}>{form.confidence}/10</b></label><input type="range" min={1} max={10} value={form.confidence} onChange={e=>setForm({...form,confidence:+e.target.value})} style={{width:"100%",marginBottom:8}}/><label style={gs.fl}>操作筆記</label><textarea style={gs.ta} rows={3} value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})} placeholder="操作原因、市場觀察..."/><label style={{...gs.fl,marginTop:6}}>標籤</label><input style={gs.fi} value={form.tags} onChange={e=>setForm({...form,tags:e.target.value})} placeholder="BOS, ETF, 動量"/><div style={{display:"flex",gap:6,justifyContent:"flex-end",marginTop:10}}><button style={gs.btnG} onClick={()=>{setShowNew(false);setEditId(null)}}>取消</button><RippleBtn style={gs.btnP} onClick={submit}>{editId?"更新":"儲存"}</RippleBtn></div></GCard>}
+    {display.map((e,i)=><GCard key={e.id} style={{padding:10,marginBottom:6,opacity:e.isDemo?.45:1,animation:`slideInL .2s ${i*.03}s both`}}><div style={{display:"flex",justifyContent:"space-between"}}><div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}><b style={{fontSize:12,color:"var(--text)"}}>{e.date}</b><span style={{fontSize:16}}>{MDS[e.mood]}</span><span style={{fontSize:10,padding:"1px 6px",background:"var(--input-bg)",borderRadius:8,color:"var(--text2)"}}>{e.type}</span><span style={{fontSize:10,color:cc(e.confidence||5),fontWeight:600}}>信心{e.confidence||5}/10</span></div>{!e.isDemo&&<div style={{display:"flex",gap:4}}><button style={{...gs.btnG,fontSize:9,padding:"2px 6px"}} onClick={()=>startEdit(e)}>✏️</button><button style={gs.btnX} onClick={()=>del(e.id)}>🗑</button></div>}</div>{e.notes&&<div style={{fontSize:11,color:"var(--text2)",marginTop:4,lineHeight:1.5}}>{e.notes}</div>}{e.tags&&<div style={{display:"flex",gap:3,marginTop:3}}>{e.tags.split(",").map((t,ti)=><span key={ti} style={{padding:"1px 5px",background:"rgba(59,130,246,.08)",borderRadius:6,fontSize:9,color:"var(--text2)"}}>#{t.trim()}</span>)}</div>}</GCard>)}</div>;
+}
+
+function HistV({p,saveP,showToast,lang="zh"}){const[expId,setExpId]=useState(null);const[enId,setEnId]=useState(null);const[nt,setNt]=useState("");const[showManual,setShowManual]=useState(false);const[mForm,setMForm]=useState({date:td(),nav:"",capital:"",targets:"",prices:"",shares:"",notes:""});
+  const submitManual=async()=>{
+    const nav=parseFloat(mForm.nav);const capital=parseFloat(mForm.capital)||nav;
+    if(!mForm.date||!nav){showToast("日期與淨值為必填","error");return}
+    const targets={},actualPrices={},shares={};
+    const re=/([A-Z]{1,6})\s*:?\s*(\d+(?:\.\d+)?)\s*%?/gi;let m;
+    const txt=mForm.targets.toUpperCase().replace(/：/g,":").replace(/％/g,"%");
+    while((m=re.exec(txt))!==null)targets[m[1]]=parseFloat(m[2]);
+    const re2=/([A-Z]{1,6})\s*:?\s*(\d+(?:\.\d+)?)/gi;let m2;
+    const ptxt=mForm.prices.toUpperCase().replace(/：/g,":");
+    while((m2=re2.exec(ptxt))!==null)actualPrices[m2[1]]=parseFloat(m2[2]);
+    const re3=/([A-Z]{1,6})\s*:?\s*(\d+)/gi;let m3;
+    const stxt=mForm.shares.toUpperCase().replace(/：/g,":");
+    while((m3=re3.exec(stxt))!==null)shares[m3[1]]=parseInt(m3[2]);
+    const rec={id:uid(),date:mForm.date,type:"manual",targets,prices:actualPrices,actualPrices,shares,prevShares:{},capital,nav,cash:0,benchPrice:0,notes:mForm.notes,isManual:true};
+    const h=[...p.history,rec].sort((a,b)=>a.date.localeCompare(b.date));
+    await saveP({...p,history:h});setShowManual(false);setMForm({date:td(),nav:"",capital:"",targets:"",prices:"",shares:"",notes:""});showToast("✅ 已補填歷史記錄");
+  };const base=p.history.length>0?p.history[0].capital:0;const dec=p.history.map((r,i)=>{const pv=i>0?p.history[i-1].nav:base;return{...r,periodRet:pv>0?(r.nav/pv-1)*100:0,cumRet:base>0?(r.nav/base-1)*100:0}});
+  if(!p.history.length&&!showManual)return <div style={{textAlign:"center",padding:40,color:"var(--text4)"}}><div style={{fontSize:40,animation:"celebBounce 2s infinite"}}>📋</div><p>尚無歷史記錄</p><RippleBtn style={{...gs.btnP,marginTop:8}} onClick={()=>setShowManual(true)}>✏️ 手動補填舊記錄</RippleBtn></div>;
+  return <div><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><h2 style={gs.vt}>📜 歷史記錄 ({p.history.length})</h2><RippleBtn style={gs.btnG} onClick={()=>setShowManual(v=>!v)}>✏️ 手動補填</RippleBtn></div>
+    {showManual&&<GCard glow="#8b5cf6" style={{padding:14,marginBottom:12,animation:"celebPop .25s ease"}}><h4 style={{margin:"0 0 8px",fontSize:12,color:"#a78bfa"}}>✏️ 手動補填歷史記錄</h4><p style={{fontSize:10,color:"var(--text3)",margin:"0 0 10px"}}>適合從舊版遷移資料。填入當時的日期與淨值，補填後會依日期自動排序。</p>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+        <div><label style={gs.fl}>📅 日期 <span style={{color:"#ef4444"}}>*</span></label><input type="date" style={gs.fi} value={mForm.date} onChange={e=>setMForm({...mForm,date:e.target.value})}/></div>
+        <div><label style={gs.fl}>💰 淨值 (NAV) <span style={{color:"#ef4444"}}>*</span></label><input type="number" style={gs.fi} value={mForm.nav} onChange={e=>setMForm({...mForm,nav:e.target.value})} placeholder="例：12500"/></div>
+        <div><label style={gs.fl}>💵 投入資金（可選）</label><input type="number" style={gs.fi} value={mForm.capital} onChange={e=>setMForm({...mForm,capital:e.target.value})} placeholder="預設同淨值"/></div>
+        <div><label style={gs.fl}>📊 配置%（可選）</label><input style={gs.fi} value={mForm.targets} onChange={e=>setMForm({...mForm,targets:e.target.value})} placeholder="TQQQ:50% TMF:30% GLD:20%"/></div>
+        <div><label style={gs.fl}>💲 成交價（可選）</label><input style={gs.fi} value={mForm.prices} onChange={e=>setMForm({...mForm,prices:e.target.value})} placeholder="TQQQ:47.5 TMF:8.2 GLD:185"/></div>
+        <div><label style={gs.fl}>🔢 股數（可選）</label><input style={gs.fi} value={mForm.shares} onChange={e=>setMForm({...mForm,shares:e.target.value})} placeholder="TQQQ:200 TMF:300 GLD:50"/></div>
+      </div>
+      <label style={gs.fl}>📝 備註（可選）</label><textarea style={{...gs.ta,marginBottom:8}} rows={2} value={mForm.notes} onChange={e=>setMForm({...mForm,notes:e.target.value})} placeholder="例：從舊版遷移的第一筆再平衡記錄"/>
+      <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}><button style={gs.btnG} onClick={()=>setShowManual(false)}>取消</button><RippleBtn style={gs.btnP} onClick={submitManual}>✅ 確認補填</RippleBtn></div>
+    </GCard>}{[...dec].reverse().map((r,ri)=>{const idx=p.history.length-1-ri;const exp=expId===idx;const entries=Object.entries(r.targets||{}).filter(([,v])=>v>0);return <GCard key={idx} style={{marginBottom:5,padding:10,animation:`slideInL .2s ${ri*.03}s both`}}><div style={{display:"flex",justifyContent:"space-between",cursor:"pointer"}} onClick={()=>setExpId(exp?null:idx)}><div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}><b style={{fontSize:12,color:"var(--text)"}}>{r.date}</b><span style={{color:"#60a5fa",fontSize:12}}>{$f(r.nav)}</span>{r.isManual&&<span style={{fontSize:9,padding:"1px 5px",background:"rgba(139,92,246,.15)",border:"1px solid rgba(139,92,246,.3)",borderRadius:4,color:"#a78bfa"}}>手動</span>}{r.cumRet!=null&&<span style={{fontSize:10,color:r.cumRet>=0?"#22c55e":"#ef4444"}}>{Pf(r.cumRet)}</span>}</div><div style={{display:"flex",gap:4}}><span style={{fontSize:9,color:"var(--text4)"}}>{exp?"▲":"▼"}</span><button style={gs.btnX} onClick={async e=>{e.stopPropagation();const h=[...p.history];h.splice(idx,1);await saveP({...p,history:h});showToast("🗑","warn")}}>🗑</button></div></div><div style={{display:"flex",gap:3,marginTop:4,flexWrap:"wrap"}}>{entries.map(([t,v])=><span key={t} style={{padding:"1px 5px",background:"var(--input-bg)",borderRadius:6,fontSize:9,color:"var(--text2)"}}>{t} {v}%</span>)}</div>{r.notes&&!exp&&<div style={{fontSize:9,color:"var(--text3)",marginTop:2}}>📝 {r.notes}</div>}{exp&&<div style={{marginTop:6,borderTop:"1px solid rgba(255,255,255,.04)",paddingTop:6}}>{enId===idx?<div style={{display:"flex",gap:4,marginBottom:6}}><textarea style={{...gs.ta,flex:1}} rows={2} value={nt} onChange={e=>setNt(e.target.value)} autoFocus/><RippleBtn style={{...gs.btnP,fontSize:10}} onClick={async()=>{const h=[...p.history];h[idx]={...h[idx],notes:nt};await saveP({...p,history:h});setEnId(null);showToast("📝")}}>存</RippleBtn></div>:<button style={{...gs.btnG,fontSize:9,marginBottom:6}} onClick={()=>{setEnId(idx);setNt(r.notes||"")}}>📝 {r.notes?"編輯":"新增"}筆記</button>}<table style={{...gs.tbl,fontSize:10}}><thead><tr><th style={gs.th}>資產</th><th style={gs.th}>%</th><th style={gs.th}>市價</th><th style={gs.th}>成交</th><th style={gs.th}>股數</th><th style={gs.th}>異動</th></tr></thead><tbody>{entries.map(([t,pct])=>{const mp=r.prices?.[t]||0,ap=r.actualPrices?.[t]||mp,sh=r.shares?.[t]||0,prev=r.prevShares?.[t]||0,d=sh-prev;return <tr key={t} style={gs.tr}><td style={gs.tdB}>{t}</td><td style={gs.tdr}>{pct}%</td><td style={gs.tdr}>{Nf(mp)}</td><td style={gs.tdr}>{Nf(ap)}</td><td style={gs.tdr}>{sh}</td><td style={{...gs.tdr,fontWeight:700,color:d>0?"#22c55e":d<0?"#ef4444":"#64748b"}}>{d>0?"+":""}{d}</td></tr>})}</tbody></table></div>}</GCard>})}</div>;
+}
+
+function GuideV({lang="zh"}){
+  const sections=[
+    {icon:"📊",title:"再平衡",color:"#3b82f6",steps:[
+      "① 在「資金設定」填入總資金（固定金額 or 動態淨值）",
+      "② 點「📥 匯入訊號」貼上配置，格式：TQQQ:50% TMF:30% GLD:20%（或用「+ 新增資產」逐一加入）",
+      "③ 點「🔍 更新股價」讓 AI 抓取即時市價",
+      "④ 右上角數字徽章變綠（= 100%）後，「📋 下單並記錄」按鈕亮起",
+      "⑤ 確認下單彈窗中可修改成交價與股數（橘框 = 已手動修改）",
+      "💡 TOS 按鈕：產生 ThinkOrSwim 下單碼，可一鍵複製",
+    ]},
+    {icon:"🍽",title:"菜盤配置",color:"#8b5cf6",steps:[
+      "菜盤 = 獨立的配置方案，可儲存多個（如「積極版」「保守版」）",
+      "① 選預設模板 或 點「＋ 新增資產」手動加入標的",
+      "② 填入比例（不超過 100%，剩餘自動視為現金部位）與投資金額，AI 自動換算股數",
+      "③ 股數欄橘框 = 已手動覆蓋，點 ↺ 恢復自動計算",
+      "④ 儲存後可點「📐 再平衡檢查」比較上次儲存 vs 當前股價的落差，並產生 TOS 下單碼",
+      "💡 右側甜甜圈圖即時顯示資產配比（含現金部位）",
+    ]},
+    {icon:"📈",title:"績效儀表板",color:"#22c55e",steps:[
+      "每次「下單並記錄」會建立一筆快照，兩筆以上才能計算績效",
+      "顯示：累計報酬、年化報酬、最大回撤、超額 α（vs Benchmark）",
+      "風險指標：Sharpe / Sortino / Beta / 波動率（需 2 期以上）",
+      "淨值走勢圖：綠柱 = 上漲期，紅柱 = 下跌期",
+      "菜盤績效：以儲存時股價為基準，搭配最新股價計算報酬",
+    ]},
+    {icon:"👀",title:"觀察清單",color:"#06b6d4",steps:[
+      "加入正在研究、尚未買入的標的",
+      "設定目標價後，系統計算「距離目標」的百分比",
+      "達到目標價時顯示 🎯 標記",
+      "點「🔍 更新價格」批次抓取最新市價",
+    ]},
+    {icon:"🔮",title:"工具箱",color:"#f59e0b",steps:[
+      "📉 情境模擬：拖曳滑桿設定 SPY 漲跌幅，用 Beta 值估算各資產衝擊",
+      "💰 股息追蹤：查詢殖利率、配息頻率、年化被動收入（需點「查詢股息」）",
+      "📅 日曆：月曆視圖顯示每次再平衡日期與淨值，可前後翻月",
+      "🎯 目標規劃：輸入目標金額、月投入、年化報酬率，反推達成年數",
+      "⚖️ 組合比較：選兩個組合並排比較 8 項績效與風險指標",
+    ]},
+    {icon:"📓",title:"交易日誌",color:"#ec4899",steps:[
+      "記錄每次操作的情緒、信心度、市場判斷與筆記",
+      "情緒（5 段表情）+ 信心度（1-10 滑桿）+ 市場情緒（做多/中性/做空/恐慌）",
+      "支援自訂日期，可補填歷史記錄",
+      "標籤欄用逗號分隔（BOS, ETF, 動量）方便分類",
+    ]},
+    
+    {icon:"📜",title:"歷史記錄",color:"#60a5fa",steps:[
+      "列出所有「下單並記錄」的快照，點列可展開查看詳細交易明細",
+      "可新增／編輯筆記備忘",
+      "✏️ 手動補填：從舊版遷移時使用，填入日期＋淨值即可補建歷程",
+      "手動補填的記錄顯示紫色「手動」標籤，補填後依日期自動排序",
+    ]},
+    {icon:"⚙️",title:"設定",color:"var(--text2)",steps:[
+      "⚠️ 落差警示閾值：持倉偏離目標超過此%時，標題列顯示警示（預設 5%）",
+      "基準指標：預設 SPY，可改為 QQQ 或其他 ETF",
+      "備份方式 A：匯出／匯入 JSON 檔案",
+      "備份方式 B：複製 JSON 文字 → 貼入記事本另存；還原時貼上文字即可",
+      "💡 建議每次再平衡後匯出一次備份",
+    ]},
+  ];
+  return <div>
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+      <h2 style={{...gs.vt,margin:0}}>📖 使用說明</h2>
+      <span style={{fontSize:10,color:"var(--text3)"}}>從頭到尾讀一遍，5 分鐘上手</span>
+    </div>
+    <GCard hover={false} style={{padding:"10px 14px",marginBottom:14,borderColor:"rgba(59,130,246,.2)"}}>
+      <div style={{fontSize:11,color:"#93c5fd",lineHeight:2}}>
+        🚀 <b>快速開始：</b>建立組合 → 填資金 → 匯入訊號（貼上配置%）→ 更新股價 → 下單並記錄 → 查看績效
+      </div>
+    </GCard>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(340px,1fr))",gap:12}}>
+      {sections.map((s,i)=><GCard key={i} style={{padding:14,animation:`cardIn .4s ${i*.06}s both`}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+          <span style={{fontSize:20}}>{s.icon}</span>
+          <span style={{fontSize:13,fontWeight:700,color:s.color}}>{s.title}</span>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:5}}>
+          {s.steps.map((step,j)=><div key={j} style={{display:"flex",gap:6,fontSize:10,lineHeight:1.7,color:step.startsWith("💡")?"#fbbf24":"#c4c9d4"}}>
+            <span style={{flexShrink:0,color:step.startsWith("💡")?"#fbbf24":s.color,marginTop:1}}>
+              {step.startsWith("💡")?"":"›"}
+            </span>
+            <span>{step}</span>
+          </div>)}
+        </div>
+      </GCard>)}
+    </div>
+  </div>;
+}
+
+function SetV({p,saveP,deleteP,portfolios,saveIdx,showToast,cfg,saveCfg,avatar,saveAvatar,watchlist,theme,setTheme,lang,setLang}){const[confirmDel,setConfirmDel]=useState(false);const[showPaste,setShowPaste]=useState(false);const[pasteText,setPasteText]=useState("");const[showPasteAll,setShowPasteAll]=useState(false);const[pasteAllText,setPasteAllText]=useState("");const avRef=useRef(null);
+  const handleAvatar=e=>{const f=e.target.files?.[0];if(!f)return;if(f.size>500000){showToast("圖片太大","error");return}const r=new FileReader();r.onload=ev=>{saveAvatar(ev.target.result);showToast("✅")};r.readAsDataURL(f);e.target.value=""};
+  const expJSON=()=>{const u="data:application/json;charset=utf-8,"+encodeURIComponent(JSON.stringify(p,null,2));const a=document.createElement("a");a.href=u;a.download=`bos-vp-${p.name}-${td()}.json`;a.click()};
+  const expAll=async()=>{const allData={portfolios:[],watchlist,cfg,exportedAt:new Date().toISOString()};for(const pi of portfolios){const d=await sG(PP+pi.id);if(d){const plates=await sG(PLK+pi.id);const journal=await sG(JK+"-"+pi.id);allData.portfolios.push({...d,plates:plates||[],journal:journal||[]})}}const u="data:application/json;charset=utf-8,"+encodeURIComponent(JSON.stringify(allData,null,2));const a=document.createElement("a");a.href=u;a.download=`bos-vp-全部備份-${td()}.json`;a.click();showToast("📦 全部資料已匯出")};
+  const doCopyText=txt=>{try{const ta=document.createElement("textarea");ta.value=txt;ta.style.cssText="position:fixed;left:-9999px";document.body.appendChild(ta);ta.select();document.execCommand("copy");document.body.removeChild(ta)}catch{}};
+  const copyJSON=()=>{doCopyText(JSON.stringify(p,null,2));showToast("✅ 已複製組合 JSON")};
+  const copyAll=async()=>{const allData={portfolios:[],watchlist,cfg,exportedAt:new Date().toISOString()};for(const pi of portfolios){const d=await sG(PP+pi.id);if(d){const plates=await sG(PLK+pi.id);const journal=await sG(JK+"-"+pi.id);allData.portfolios.push({...d,plates:plates||[],journal:journal||[]})}}doCopyText(JSON.stringify(allData,null,2));showToast("✅ 已複製全部資料 JSON")};
+  const pasteImp=async()=>{try{const data=JSON.parse(pasteText);await saveP({...p,...data,id:p.id});showToast("✅ 已還原");setShowPaste(false);setPasteText("")}catch{showToast("JSON 格式錯誤","error")}};
+  const pasteImpAll=async()=>{try{const data=JSON.parse(pasteAllText);if(!data.portfolios){showToast("非全部備份格式","error");return}for(const pd of data.portfolios){await sS(PP+pd.id,pd);if(pd.plates)await sS(PLK+pd.id,pd.plates);if(pd.journal)await sS(JK+"-"+pd.id,pd.journal)}const idx=data.portfolios.map(d=>({id:d.id,name:d.name}));await saveIdx(idx);if(data.watchlist)await sS(WK,data.watchlist);showToast("✅ 全部資料已還原，請重新整理");setShowPasteAll(false);setPasteAllText("")}catch{showToast("JSON 格式錯誤","error")}};
+  const impJSON=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=async ev=>{try{const data=JSON.parse(ev.target.result);if(data.portfolios&&Array.isArray(data.portfolios)){showToast("此為全部備份，請用匯入全部功能","warn")}else{await saveP({...p,...data,id:p.id});showToast("✅")}}catch{showToast("格式錯誤","error")}};r.readAsText(f);e.target.value=""};
+  const impAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=async ev=>{try{const data=JSON.parse(ev.target.result);if(!data.portfolios){showToast("非全部備份格式","error");return}for(const pd of data.portfolios){await sS(PP+pd.id,pd);if(pd.plates)await sS(PLK+pd.id,pd.plates);if(pd.journal)await sS(JK+"-"+pd.id,pd.journal)}const idx=data.portfolios.map(d=>({id:d.id,name:d.name}));await saveIdx(idx);if(data.watchlist)await sS(WK,data.watchlist);showToast("✅ 全部資料已還原，請重新整理頁面")}catch{showToast("格式錯誤","error")}};r.readAsText(f);e.target.value=""};
+  return <div style={{maxWidth:500}}><h2 style={{...gs.vt,marginBottom:12}}>⚙️ 設定</h2>
+    
+    <GCard style={{padding:14,marginBottom:10}}><h3 style={gs.pt}>⚠️ 落差警示閾值</h3><div style={{display:"flex",alignItems:"center",gap:10}}><input type="range" min={1} max={20} value={p.driftThreshold||5} onChange={e=>saveP({...p,driftThreshold:+e.target.value})} style={{flex:1}}/><span style={{fontSize:14,fontWeight:700,color:"#f59e0b",minWidth:40,textAlign:"center"}}>{p.driftThreshold||5}%</span></div><p style={{fontSize:10,color:"var(--text3)",margin:"4px 0 0"}}>持倉偏離目標超過此比例時，標題列顯示再平衡警示</p></GCard>
+    <GCard style={{padding:14,marginBottom:10}}><h3 style={gs.pt}>👤 頭像</h3>
+      <div style={{marginBottom:10}}><div style={{fontSize:10,color:"var(--text2)",marginBottom:6}}>內建頭像（點選）</div><div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{BUILTIN_AVATARS.map(a=><div key={a.id} onClick={()=>{saveAvatar(a.src);showToast("✅ 已套用")}} style={{width:44,height:44,borderRadius:"50%",overflow:"hidden",cursor:"pointer",border:avatar===a.src?"2px solid #3b82f6":"2px solid transparent",transition:"border .2s",flexShrink:0}} title={a.emoji}><img src={a.src} style={{width:"100%",height:"100%"}}/></div>)}</div></div>
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <div onClick={()=>avRef.current?.click()} style={{width:48,height:48,borderRadius:"50%",overflow:"hidden",border:"2px solid rgba(59,130,246,.3)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",background:"#0f172a",flexShrink:0}}>{avatar?<img src={avatar} style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:20,color:"var(--text3)"}}>📷</span>}</div>
+        <div style={{display:"flex",flexDirection:"column",gap:4}}><RippleBtn style={gs.btnG} onClick={()=>avRef.current?.click()}>📁 上傳自訂圖片</RippleBtn><span style={{fontSize:9,color:"var(--text3)"}}>JPG/PNG，500KB 以下</span></div>
+        {avatar&&<button style={{...gs.btnX,fontSize:10}} onClick={()=>{saveAvatar(null);showToast("已清除")}}>移除</button>}
+      </div>
+      <input ref={avRef} type="file" accept="image/jpeg,image/png,image/webp" style={{display:"none"}} onChange={handleAvatar}/></GCard>
+    <GCard style={{padding:14,marginBottom:10}}><h3 style={gs.pt}>🔤 字體大小</h3><div style={{display:"flex",alignItems:"center",gap:10}}><span style={{fontSize:10,color:"var(--text2)"}}>小</span><input type="range" min={10} max={18} value={cfg.fontSize} onChange={e=>saveCfg({...cfg,fontSize:+e.target.value})} style={{flex:1}}/><span style={{fontSize:10,color:"var(--text2)"}}>大</span><span style={{fontSize:12,fontWeight:700,color:"#3b82f6",minWidth:30,textAlign:"center"}}>{cfg.fontSize}px</span></div></GCard>
+    
+    <GCard style={{padding:14,marginBottom:10}}><h3 style={gs.pt}>🎨 主題 / Theme</h3><div style={{display:"flex",gap:8}}>{[["dark","🌙 深色 Dark"],["light","☀️ 淺色 Light"]].map(([v,l])=><label key={v} style={{display:"flex",gap:4,cursor:"pointer",fontSize:11,color:theme===v?"var(--blue2)":"var(--text2)",fontWeight:theme===v?700:400}}><input type="radio" name="thm" checked={theme===v} onChange={()=>setTheme(v)}/>{l}</label>)}</div></GCard>
+    <GCard style={{padding:14,marginBottom:10}}><h3 style={gs.pt}>🌐 語言 / Language</h3><div style={{display:"flex",gap:8}}>{[["zh","繁體中文"],["en","English"]].map(([v,l])=><label key={v} style={{display:"flex",gap:4,cursor:"pointer",fontSize:11,color:lang===v?"var(--blue2)":"var(--text2)",fontWeight:lang===v?700:400}}><input type="radio" name="lng" checked={lang===v} onChange={()=>setLang(v)}/>{l}</label>)}</div></GCard>
+    
+    <GCard style={{padding:14,marginBottom:10}}><h3 style={gs.pt}>📊 基準指標</h3><input style={gs.fi} value={p.benchmark} onChange={e=>saveP({...p,benchmark:e.target.value.toUpperCase()})} placeholder="SPY"/></GCard>
+    <GCard style={{padding:14,marginBottom:10}}><h3 style={gs.pt}>💾 資料備份</h3><div style={{display:"flex",gap:6,flexWrap:"wrap"}}><RippleBtn style={gs.btnG} onClick={expJSON}>📤 匯出組合</RippleBtn><RippleBtn style={gs.btnG} onClick={()=>document.getElementById("imp1set").click()}>📥 匯入組合</RippleBtn><input id="imp1set" type="file" accept=".json" style={{display:"none"}} onChange={impJSON}/></div><div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}><RippleBtn style={{...gs.btnP,background:"linear-gradient(135deg,#7c3aed,#6d28d9)"}} onClick={expAll}>📦 匯出全部</RippleBtn><RippleBtn style={gs.btnA} onClick={()=>document.getElementById("impAllSet").click()}>📦 匯入全部</RippleBtn><input id="impAllSet" type="file" accept=".json" style={{display:"none"}} onChange={impAll}/></div><div style={{marginTop:8,padding:"8px 10px",background:"rgba(59,130,246,.08)",border:"1px solid rgba(59,130,246,.15)",borderRadius:6}}><div style={{display:"flex",gap:6,alignItems:"center"}}><span>ℹ️</span><span style={{fontSize:10,color:"var(--blue2)",lineHeight:1.6}}>{t("storageNote",lang)}</span></div></div><p style={{fontSize:9,color:"var(--text3)",margin:"6px 0 0"}}>「全部資料」包含所有組合、菜盤、日誌、觀察清單</p></GCard>
+    <GCard style={{padding:14,marginBottom:10}}><h3 style={gs.pt}>📋 複製／貼上備份</h3><p style={{fontSize:10,color:"var(--text3)",margin:"0 0 8px"}}>若下載受限：複製 JSON → 貼入記事本 → 另存 .json；還原時貼上 JSON 文字即可</p><div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}><RippleBtn style={gs.btnG} onClick={copyJSON}>📋 複製組合 JSON</RippleBtn><RippleBtn style={{...gs.btnG,color:"#a78bfa"}} onClick={copyAll}>📋 複製全部 JSON</RippleBtn></div><div style={{display:"flex",gap:6,flexWrap:"wrap"}}><RippleBtn style={gs.btnG} onClick={()=>setShowPaste(v=>!v)}>📥 貼上還原（組合）</RippleBtn><RippleBtn style={gs.btnG} onClick={()=>setShowPasteAll(v=>!v)}>📥 貼上還原（全部）</RippleBtn></div>{showPaste&&<div style={{marginTop:8}}><textarea style={{...gs.ta,height:90}} value={pasteText} onChange={e=>setPasteText(e.target.value)} placeholder="貼上組合 JSON..."/><div style={{display:"flex",gap:6,marginTop:4}}><RippleBtn style={gs.btnP} onClick={pasteImp}>確認還原</RippleBtn><button style={gs.btnG} onClick={()=>{setShowPaste(false);setPasteText("")}}>取消</button></div></div>}{showPasteAll&&<div style={{marginTop:8}}><textarea style={{...gs.ta,height:90}} value={pasteAllText} onChange={e=>setPasteAllText(e.target.value)} placeholder="貼上全部備份 JSON..."/><div style={{display:"flex",gap:6,marginTop:4}}><RippleBtn style={gs.btnP} onClick={pasteImpAll}>確認還原</RippleBtn><button style={gs.btnG} onClick={()=>{setShowPasteAll(false);setPasteAllText("")}}>取消</button></div></div>}</GCard>
+    <GCard style={{padding:14,borderColor:"rgba(127,29,29,.3)"}}><h3 style={{...gs.pt,color:"#ef4444"}}>⚠️ 危險區域</h3>{!confirmDel?<RippleBtn style={{...gs.btnG,color:"#ef4444",borderColor:"rgba(127,29,29,.5)"}} onClick={()=>setConfirmDel(true)}>🗑 刪除此組合</RippleBtn>:<div style={{display:"flex",flexDirection:"column",gap:8}}><p style={{fontSize:11,color:"#fca5a5",margin:0}}>確定要永久刪除「{p.name}」？</p><div style={{display:"flex",gap:8}}><button style={{padding:"6px 14px",background:"#dc2626",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"inherit"}} onClick={()=>{deleteP(p.id);setConfirmDel(false)}}>確定刪除</button><button style={gs.btnG} onClick={()=>setConfirmDel(false)}>取消</button></div></div>}</GCard>
+  </div>;
+}
+
+
+
+// ── Render ──
+try {
+  const root=ReactDOM.createRoot(document.getElementById("root"));
+  root.render(React.createElement(App));
+} catch(e) {
+  document.getElementById("root").innerHTML = '<div style="padding:40px;font-family:monospace;background:#1e293b;color:#f87171;min-height:100vh"><h2 style="color:#fbbf24">⚠️ Render Error</h2><pre style="white-space:pre-wrap;color:#94a3b8">'+e.message+'\n'+e.stack+'</pre></div>';
+}
+</script>
+</body>
+</html>
