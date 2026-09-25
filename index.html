@@ -1,7 +1,6 @@
 <!DOCTYPE html>
-<html lang="zh-TW" data-theme="dark" translate="no" class="notranslate">
+<html lang="zh-TW" data-theme="dark">
 <head>
-<meta name="google" content="notranslate">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BOS Value Pro — 一秒配置</title>
@@ -193,59 +192,136 @@ function sD(k){try{localStorage.removeItem(STORAGE_PREFIX+k)}catch{}}
 function isStorageOK(){return typeof localStorage!=="undefined"}
 
 
-// ── Stock Price Fetcher (Yahoo Finance via CORS proxy) ──
-// Error codes: E101=Yahoo CORS proxy fail, E105=tickers not found
+// ── Stock Price Fetcher ──
+// 來源優先序: 1) 自訂 Proxy (Cloudflare Worker)  2) Finnhub API Key  3) 公用 CORS Proxy
+// 錯誤碼: E101=自訂Proxy失敗 E102=Finnhub失敗 E103=公用Proxy全部失敗
+//         E105=部分標的查無 E110=未設定任何可用來源
 
-async function fetchPxYahoo(tickers,signal){
-  if(!tickers.length)return{};
+// 【設定區】部署 Cloudflare Worker 後，把網址填進這裡（見說明頁）
+const DEFAULT_PROXY="https://bos-px.joshua1491313.workers.dev/?url=";
+
+function getProxyUrl(){try{return localStorage.getItem("bos-vp-proxy")||DEFAULT_PROXY}catch{return DEFAULT_PROXY}}
+function getFinnhubKey(){try{return localStorage.getItem("bos-vp-finnhub")||""}catch{return ""}}
+
+function parseYahooBody(raw){
+  const body=raw&&raw.contents?JSON.parse(raw.contents):raw;
+  const res=body?.chart?.result?.[0];
+  const p=res?.meta?.regularMarketPrice
+    ||res?.indicators?.quote?.[0]?.close?.filter(Boolean)?.slice(-1)?.[0];
+  return (p&&p>0)?+(+p).toFixed(4):null;
+}
+
+// 來源 1: 自訂 Proxy (Cloudflare Worker) — 最穩定
+async function fetchViaProxy(tickers,proxyBase,signal){
   const out={};const ts=Date.now();
-  const proxies=["https://corsproxy.io/?","https://api.allorigins.win/get?url=","https://api.codetabs.com/v1/proxy?quest="];
-  const queue=[...tickers];const workers=Math.min(6,queue.length);
+  const queue=[...tickers];
   const doOne=async()=>{while(queue.length){
     if(signal?.aborted)return;
     const tk=queue.shift();
     const yUrl=`https://query1.finance.yahoo.com/v8/finance/chart/${tk}?interval=1d&range=1d&_=${ts}`;
-    for(const proxyBase of proxies){
+    try{
+      const tc=new AbortController();const timer=setTimeout(()=>tc.abort(),9000);
+      if(signal)signal.addEventListener("abort",()=>tc.abort(),{once:true});
+      const url=proxyBase.includes("?")?`${proxyBase}${encodeURIComponent(yUrl)}`:`${proxyBase}/${yUrl}`;
+      const r=await fetch(url,{signal:tc.signal});clearTimeout(timer);
+      if(!r.ok)continue;
+      const px=parseYahooBody(await r.json());
+      if(px)out[tk.toUpperCase()]=px;
+    }catch{}
+  }};
+  try{await Promise.all(Array.from({length:Math.min(6,tickers.length)},doOne))}catch{}
+  return out;
+}
+
+// 來源 2: Finnhub — 原生支援 CORS，免費 60次/分
+async function fetchViaFinnhub(tickers,key,signal){
+  const out={};
+  for(const tk of tickers){
+    if(signal?.aborted)break;
+    try{
+      const tc=new AbortController();const timer=setTimeout(()=>tc.abort(),8000);
+      if(signal)signal.addEventListener("abort",()=>tc.abort(),{once:true});
+      const r=await fetch(`https://finnhub.io/api/v1/quote?symbol=${tk}&token=${key}`,{signal:tc.signal});
+      clearTimeout(timer);
+      if(!r.ok)continue;
+      const d=await r.json();
+      if(d&&d.c>0)out[tk.toUpperCase()]=+(+d.c).toFixed(4);
+    }catch{}
+    await new Promise(r=>setTimeout(r,120));
+  }
+  return out;
+}
+
+// 來源 3: 公用 CORS Proxy — 不穩定，僅作最後備援
+async function fetchViaPublicProxy(tickers,signal){
+  const out={};const ts=Date.now();
+  const proxies=[
+    u=>`https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+    u=>`https://api.codetabs.com/v1/proxy?quest=${u}`,
+    u=>`https://corsproxy.io/?${encodeURIComponent(u)}`,
+  ];
+  const queue=[...tickers];
+  const doOne=async()=>{while(queue.length){
+    if(signal?.aborted)return;
+    const tk=queue.shift();
+    const yUrl=`https://query1.finance.yahoo.com/v8/finance/chart/${tk}?interval=1d&range=1d&_=${ts}`;
+    for(const mk of proxies){
       if(signal?.aborted)return;
-      const isAllOrigins=proxyBase.includes("allorigins");
-      const isCodetabs=proxyBase.includes("codetabs");
-      const url=isCodetabs?`${proxyBase}${yUrl}`:isAllOrigins?`${proxyBase}${encodeURIComponent(yUrl)}`:`${proxyBase}${encodeURIComponent(yUrl)}`;
       try{
         const tc=new AbortController();const timer=setTimeout(()=>tc.abort(),6000);
-        if(signal){signal.addEventListener("abort",()=>tc.abort(),{once:true})}
-        const r=await fetch(url,{signal:tc.signal});clearTimeout(timer);
+        if(signal)signal.addEventListener("abort",()=>tc.abort(),{once:true});
+        const r=await fetch(mk(yUrl),{signal:tc.signal});clearTimeout(timer);
         if(!r.ok)continue;
-        const raw=await r.json();
-        const body=raw.contents?JSON.parse(raw.contents):raw;
-        const meta=body?.chart?.result?.[0]?.meta;
-        const price=meta?.regularMarketPrice||body?.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(Boolean)?.slice(-1)?.[0];
-        if(price&&price>0){out[tk.toUpperCase()]=+price.toFixed(4);break;}
+        const px=parseYahooBody(await r.json());
+        if(px){out[tk.toUpperCase()]=px;break;}
       }catch{}
     }
   }};
-  try{await Promise.all(Array.from({length:workers},doOne))}catch{}
+  try{await Promise.all(Array.from({length:Math.min(4,tickers.length)},doOne))}catch{}
   return out;
 }
 
 async function fetchPx(tickers,onProgress,signal,onStage){
   if(!tickers.length)return{};
-  let out={};const errors=[];
+  const out={};const errors=[];
+  const proxyUrl=getProxyUrl(),fhKey=getFinnhubKey();
+  const remaining=()=>tickers.filter(t=>!out[t]);
 
-  // Phase 1: Yahoo Finance via CORS proxy
-  if(onStage)onStage("yahoo",0);
-  try{out=await fetchPxYahoo(tickers,signal)}catch{}
-  if(signal?.aborted)return out;
-  const yahooCount=Object.keys(out).length;
-  if(yahooCount>0&&onStage)onStage("yahoo-done",yahooCount);
-  let missing=tickers.filter(t=>!out[t]);
-  if(!missing.length){if(onProgress)onProgress(1,1,[]);return out;}
-  if(yahooCount===0)errors.push("E101: Yahoo CORS proxy 無回應");
+  // 來源 1: 自訂 Proxy
+  if(proxyUrl&&remaining().length){
+    if(onStage)onStage("proxy",remaining().length);
+    try{Object.assign(out,await fetchViaProxy(remaining(),proxyUrl,signal))}catch{}
+    if(signal?.aborted)return out;
+    if(Object.keys(out).length===0)errors.push("E101: 自訂 Proxy 無回應");
+    else if(onStage)onStage("proxy-done",Object.keys(out).length);
+  }
 
-  if(missing.length>0)errors.push("E105: "+missing.join(",")+" 無法取得");
+  // 來源 2: Finnhub
+  if(fhKey&&remaining().length&&!signal?.aborted){
+    if(onStage)onStage("finnhub",remaining().length);
+    const before=Object.keys(out).length;
+    try{Object.assign(out,await fetchViaFinnhub(remaining(),fhKey,signal))}catch{}
+    if(Object.keys(out).length===before)errors.push("E102: Finnhub 無回應（檢查 API Key）");
+    else if(onStage)onStage("finnhub-done",Object.keys(out).length-before);
+  }
+
+  // 來源 3: 公用 Proxy
+  if(remaining().length&&!signal?.aborted){
+    if(onStage)onStage("public",remaining().length);
+    const before=Object.keys(out).length;
+    try{Object.assign(out,await fetchViaPublicProxy(remaining(),signal))}catch{}
+    if(Object.keys(out).length===before)errors.push("E103: 公用 CORS Proxy 全部失敗");
+    else if(onStage)onStage("public-done",Object.keys(out).length-before);
+  }
+
+  const miss=remaining();
+  if(miss.length&&Object.keys(out).length>0)errors.push("E105: "+miss.join(",")+" 查無報價");
+  if(Object.keys(out).length===0&&!proxyUrl&&!fhKey)errors.push("E110: 請到設定頁填入 Proxy 或 Finnhub Key");
   if(errors.length)out._errors=errors;
   if(onProgress)onProgress(1,1,[]);
   return out;
 }
+
 
 // ── Utils ──
 function newP(n){return{id:uid(),name:n,createdAt:td(),capital:10000,capitalMode:"fixed",benchmark:"SPY",holdings:{},cash:0,targets:{},prices:{},history:[],driftThreshold:5}}
@@ -335,7 +411,7 @@ function Particles(){const[pts]=useState(()=>Array.from({length:35},(_,i)=>({id:
 function GlowOrbs(){return <><div style={{position:"absolute",width:600,height:600,borderRadius:"50%",background:"radial-gradient(circle,rgba(59,130,246,.1) 0%,transparent 70%)",top:"-20%",left:"-10%",animation:"orbFloat1 20s infinite ease-in-out",pointerEvents:"none"}}/><div style={{position:"absolute",width:400,height:400,borderRadius:"50%",background:"radial-gradient(circle,rgba(139,92,246,.08) 0%,transparent 60%)",bottom:"-10%",right:"-5%",animation:"orbFloat2 25s infinite ease-in-out",pointerEvents:"none"}}/></>}
 function PieChart({data,size=220}){if(!data.length)return null;const total=data.reduce((s,d)=>s+d.value,0);if(total<=0)return null;const cx=size/2,cy=size/2,R=size/2-12,r2=R*.58;let cum=-Math.PI/2;const slices=data.map((d,i)=>{const pct=d.value/total,angle=pct*2*Math.PI,sa=cum;cum+=angle;const ea=cum,x1=cx+R*Math.cos(sa),y1=cy+R*Math.sin(sa),x2=cx+R*Math.cos(ea),y2=cy+R*Math.sin(ea),ix1=cx+r2*Math.cos(ea),iy1=cy+r2*Math.sin(ea),ix2=cx+r2*Math.cos(sa),iy2=cy+r2*Math.sin(sa),large=angle>Math.PI?1:0,midA=sa+angle/2;return{...d,path:`M${ix2},${iy2} L${x1},${y1} A${R},${R} 0 ${large},1 ${x2},${y2} L${ix1},${iy1} A${r2},${r2} 0 ${large},0 ${ix2},${iy2} Z`,pct,lx:cx+R*.8*Math.cos(midA),ly:cy+R*.8*Math.sin(midA),color:d.color||PIE_COLORS[i%PIE_COLORS.length]}});return <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>{slices.map((s,i)=><path key={i} d={s.path} fill={s.color} stroke="rgba(10,14,23,.8)" strokeWidth="1.5"><title>{s.label}: {(s.pct*100).toFixed(1)}%</title></path>)}{slices.filter(s=>s.pct>.04).map((s,i)=><text key={"t"+i} x={s.lx} y={s.ly} textAnchor="middle" dominantBaseline="middle" fill="#fff" fontSize={s.pct>.1?10:8} fontWeight="700" fontFamily="monospace">{s.label}</text>)}<circle cx={cx} cy={cy} r={r2-4} fill="rgba(10,14,23,.85)"/><text x={cx} y={cy-6} textAnchor="middle" fill="#e2e8f0" fontSize="14" fontWeight="800" fontFamily="monospace">{$f(total,0)}</text><text x={cx} y={cy+10} textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="monospace">TOTAL</text></svg>;}
 
-function LoadingScreen({onSkip}){const[step,setStep]=useState(0);const[showSkip,setShowSkip]=useState(false);useEffect(()=>{const t=setInterval(()=>setStep(s=>Math.min(s+1,3)),600);const s=setTimeout(()=>setShowSkip(true),4000);return()=>{clearInterval(t);clearTimeout(s)}},[]);return(<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100vh",background:"linear-gradient(135deg,var(--bg),var(--bg2))",position:"relative",overflow:"hidden"}}><style>{animCSS}</style><Particles/><GlowOrbs/><div style={{zIndex:2,textAlign:"center"}}><div style={{width:64,height:64,borderRadius:16,background:"linear-gradient(135deg,rgba(59,130,246,.15),rgba(139,92,246,.15))",border:"1px solid rgba(59,130,246,.2)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",animation:"logoFloat 3s ease-in-out infinite"}}><svg width="34" height="34" viewBox="0 0 44 44" fill="none"><path d="M22 4L38 13v18L22 40 6 31V13L22 4z" stroke="#3b82f6" strokeWidth="1.5" fill="none"/><path d="M14 20l4 4 12-10" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg></div><h2 style={{fontSize:20,fontWeight:800,margin:"0 0 2px",background:"linear-gradient(135deg,#3b82f6,#06b6d4)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",fontFamily:"monospace"}}>BOS Value Pro</h2><p style={{fontSize:11,color:"var(--text2)",margin:"2px 0 0",fontFamily:"monospace",letterSpacing:"0.5px"}}>一秒配置</p><div style={{display:"inline-flex",gap:5,background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.25)",borderRadius:10,padding:"2px 10px",marginTop:4}}><span style={{fontSize:9,color:"#fbbf24",fontWeight:700,letterSpacing:"1.5px"}}>WEB V7</span></div><div style={{width:200,height:4,background:"#1e293b",borderRadius:2,margin:"16px auto 10px",overflow:"hidden"}}><div style={{height:"100%",background:"linear-gradient(90deg,#3b82f6,#8b5cf6)",borderRadius:2,transition:"width .5s",width:`${(step+1)/4*100}%`}}/></div><p style={{fontSize:11,color:"var(--text3)",fontFamily:"monospace"}}>{["初始化系統...","載入組合資料...","連接雲端儲存...","準備就緒"][step]}</p>{showSkip&&<button onClick={onSkip} style={{marginTop:16,padding:"8px 20px",background:"rgba(59,130,246,.15)",border:"1px solid rgba(59,130,246,.3)",borderRadius:8,color:"#93c5fd",fontSize:11,cursor:"pointer",fontFamily:"monospace",fontWeight:600,animation:"fadeSlideIn .3s ease"}}>載入太久？點此跳過 →</button>}</div></div>);}
+function LoadingScreen({onSkip}){const[step,setStep]=useState(0);const[showSkip,setShowSkip]=useState(false);useEffect(()=>{const t=setInterval(()=>setStep(s=>Math.min(s+1,3)),600);const s=setTimeout(()=>setShowSkip(true),4000);return()=>{clearInterval(t);clearTimeout(s)}},[]);return(<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100vh",background:"linear-gradient(135deg,var(--bg),var(--bg2))",position:"relative",overflow:"hidden"}}><style>{animCSS}</style><Particles/><GlowOrbs/><div style={{zIndex:2,textAlign:"center"}}><div style={{width:64,height:64,borderRadius:16,background:"linear-gradient(135deg,rgba(59,130,246,.15),rgba(139,92,246,.15))",border:"1px solid rgba(59,130,246,.2)",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",animation:"logoFloat 3s ease-in-out infinite"}}><svg width="34" height="34" viewBox="0 0 44 44" fill="none"><path d="M22 4L38 13v18L22 40 6 31V13L22 4z" stroke="#3b82f6" strokeWidth="1.5" fill="none"/><path d="M14 20l4 4 12-10" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg></div><h2 style={{fontSize:20,fontWeight:800,margin:"0 0 2px",background:"linear-gradient(135deg,#3b82f6,#06b6d4)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",fontFamily:"monospace"}}>BOS Value Pro</h2><p style={{fontSize:11,color:"var(--text2)",margin:"2px 0 0",fontFamily:"monospace",letterSpacing:"0.5px"}}>一秒配置</p><div style={{display:"inline-flex",gap:5,background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.25)",borderRadius:10,padding:"2px 10px",marginTop:4}}><span style={{fontSize:9,color:"#fbbf24",fontWeight:700,letterSpacing:"1.5px"}}>WEB V9</span></div><div style={{width:200,height:4,background:"#1e293b",borderRadius:2,margin:"16px auto 10px",overflow:"hidden"}}><div style={{height:"100%",background:"linear-gradient(90deg,#3b82f6,#8b5cf6)",borderRadius:2,transition:"width .5s",width:`${(step+1)/4*100}%`}}/></div><p style={{fontSize:11,color:"var(--text3)",fontFamily:"monospace"}}>{["初始化系統...","載入組合資料...","連接雲端儲存...","準備就緒"][step]}</p>{showSkip&&<button onClick={onSkip} style={{marginTop:16,padding:"8px 20px",background:"rgba(59,130,246,.15)",border:"1px solid rgba(59,130,246,.3)",borderRadius:8,color:"#93c5fd",fontSize:11,cursor:"pointer",fontFamily:"monospace",fontWeight:600,animation:"fadeSlideIn .3s ease"}}>載入太久？點此跳過 →</button>}</div></div>);}
 
 // ══════════════════════ APP ROOT ══════════════════════
 function App(){
@@ -407,8 +483,12 @@ function App(){
     const safetyTimer=setTimeout(()=>{if(!ctrl.signal.aborted)ctrl.abort()},90000);
     let res={};
     try{res=await fetchPx([...tks],(done,total)=>{if(ctrl.signal.aborted)return;const pct=Math.round((done/Math.max(total,1))*100);setFetchProg(pct);setFetchStage(pct>=100?`✅ 查詢完成！`:`🤖 已完成 ${done}/${total} 批`);},ctrl.signal,(stage,n)=>{if(ctrl.signal.aborted)return;
-      if(stage==="yahoo")setFetchStage("📡 Yahoo Finance...");
-      else if(stage==="yahoo-done")setFetchStage(`📡 Yahoo 取得 ${n} 檔`);
+      if(stage==="proxy")setFetchStage(`📡 查詢 ${n} 檔...`);
+      else if(stage==="proxy-done")setFetchStage(`📡 取得 ${n} 檔`);
+      else if(stage==="finnhub")setFetchStage(`🔑 Finnhub 查詢 ${n} 檔...`);
+      else if(stage==="finnhub-done")setFetchStage(`🔑 Finnhub 取得 ${n} 檔`);
+      else if(stage==="public")setFetchStage(`🌐 備援查詢 ${n} 檔...`);
+      else if(stage==="public-done")setFetchStage(`🌐 備援取得 ${n} 檔`);
     })}catch(e){if(e?.name!=="AbortError")console.warn("fetchPrices error:",e)}
     clearTimeout(safetyTimer);
     if(ctrl.signal.aborted&&!Object.keys(res).length){setFetching(false);setFetchProg(0);setFetchStage("");return;}
@@ -430,7 +510,7 @@ function App(){
   const drift=p?calcDrift(p):{maxAbs:0,drifts:[],needRebal:false};
   const tabs=[["rebalance",t("rebalance",lang)],["plate",t("plate",lang)],["dashboard",t("dashboard",lang)],["watchlist",t("watchlist",lang)],["tools",t("tools",lang)],["journal",t("journal",lang)],["history",t("history",lang)],["guide",t("guide",lang)],["settings",t("settings",lang)]];
 
-  if(!portfolios.length&&!showCreate)return(<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100vh",background:"linear-gradient(135deg,var(--bg),var(--bg2))",position:"relative",overflow:"hidden",color:"var(--text)"}}><style>{animCSS}</style><Particles/><GlowOrbs/><div style={{textAlign:"center",zIndex:2,maxWidth:560,padding:"0 20px"}}><div style={{fontSize:72,marginBottom:12,animation:"logoFloat 4s ease-in-out infinite"}}>🏦</div><h1 style={{fontSize:34,fontWeight:900,margin:"0 0 4px",background:"linear-gradient(135deg,#3b82f6,#06b6d4,#8b5cf6)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",fontFamily:"monospace"}}>BOS Value Pro</h1><p style={{fontSize:13,color:"var(--text2)",margin:"2px 0 0",fontFamily:"monospace",letterSpacing:"1px"}}>一秒配置</p><div style={{display:"inline-flex",gap:6,background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.25)",borderRadius:10,padding:"3px 12px",marginBottom:20}}><span style={{fontSize:10,color:"#fbbf24",fontWeight:700,letterSpacing:"2px"}}>WEB V7</span></div><div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:28}}>{[{i:"📊",t:"智慧再平衡"},{i:"🍽",t:"菜盤配置"},{i:"📈",t:"績效分析"},{i:"📓",t:"交易日誌"},{i:"👀",t:"觀察清單"},{i:"🔮",t:"工具箱"}].map((f,i)=><GCard key={i} glow="#3b82f6" style={{padding:"18px 10px",animation:`cardIn .5s ${i*.07}s both`,cursor:"pointer",textAlign:"center"}} onClick={()=>setShowCreate(true)}><div style={{fontSize:30,marginBottom:6}}>{f.i}</div><div style={{fontSize:12,fontWeight:700,color:"var(--text)"}}>{f.t}</div></GCard>)}</div><RippleBtn style={{padding:"14px 36px",fontSize:14,fontWeight:700,borderRadius:14,background:"linear-gradient(135deg,#3b82f6,#7c3aed)",color:"#fff",border:"none",cursor:"pointer",boxShadow:"0 0 30px rgba(59,130,246,.3)",animation:"btnGlow 3s infinite",fontFamily:"monospace"}} onClick={()=>setShowCreate(true)}>{t("startUsing",lang)}</RippleBtn></div></div>);
+  if(!portfolios.length&&!showCreate)return(<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100vh",background:"linear-gradient(135deg,var(--bg),var(--bg2))",position:"relative",overflow:"hidden",color:"var(--text)"}}><style>{animCSS}</style><Particles/><GlowOrbs/><div style={{textAlign:"center",zIndex:2,maxWidth:560,padding:"0 20px"}}><div style={{fontSize:72,marginBottom:12,animation:"logoFloat 4s ease-in-out infinite"}}>🏦</div><h1 style={{fontSize:34,fontWeight:900,margin:"0 0 4px",background:"linear-gradient(135deg,#3b82f6,#06b6d4,#8b5cf6)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",fontFamily:"monospace"}}>BOS Value Pro</h1><p style={{fontSize:13,color:"var(--text2)",margin:"2px 0 0",fontFamily:"monospace",letterSpacing:"1px"}}>一秒配置</p><div style={{display:"inline-flex",gap:6,background:"rgba(245,158,11,.1)",border:"1px solid rgba(245,158,11,.25)",borderRadius:10,padding:"3px 12px",marginBottom:20}}><span style={{fontSize:10,color:"#fbbf24",fontWeight:700,letterSpacing:"2px"}}>WEB V9</span></div><div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:28}}>{[{i:"📊",t:"智慧再平衡"},{i:"🍽",t:"菜盤配置"},{i:"📈",t:"績效分析"},{i:"📓",t:"交易日誌"},{i:"👀",t:"觀察清單"},{i:"🔮",t:"工具箱"}].map((f,i)=><GCard key={i} glow="#3b82f6" style={{padding:"18px 10px",animation:`cardIn .5s ${i*.07}s both`,cursor:"pointer",textAlign:"center"}} onClick={()=>setShowCreate(true)}><div style={{fontSize:30,marginBottom:6}}>{f.i}</div><div style={{fontSize:12,fontWeight:700,color:"var(--text)"}}>{f.t}</div></GCard>)}</div><RippleBtn style={{padding:"14px 36px",fontSize:14,fontWeight:700,borderRadius:14,background:"linear-gradient(135deg,#3b82f6,#7c3aed)",color:"#fff",border:"none",cursor:"pointer",boxShadow:"0 0 30px rgba(59,130,246,.3)",animation:"btnGlow 3s infinite",fontFamily:"monospace"}} onClick={()=>setShowCreate(true)}>{t("startUsing",lang)}</RippleBtn></div></div>);
 
   return(<div style={{...gs.app,fontSize:cfg.fontSize}}><style>{animCSS}</style>
     <canvas id="cvs-confetti" style={{position:"fixed",inset:0,zIndex:9998,display:"none",pointerEvents:"none"}}/>
@@ -570,8 +650,12 @@ function PlateV({p,lang="zh",showToast,onPlatesChanged=()=>{},initialPlateId=nul
   const fetchAbortRef=useRef(null);
   const cancelFetch=()=>{try{fetchAbortRef.current?.abort()}catch{}fetchAbortRef.current=null;setFetching(false);setPlateFetchProg(0);setPlateFetchStage("")};
   const doFetch=async()=>{if(!tickers.length)return;cancelFetch();setFetching(true);setPlateFetchProg(0);setPlateFetchStage("📡 嘗試 Yahoo Finance...");const ctrl=new AbortController();fetchAbortRef.current=ctrl;try{const res=await fetchPx(tickers,(done,total)=>{if(ctrl.signal.aborted)return;const pct=Math.round((done/Math.max(total,1))*100);setPlateFetchProg(pct);setPlateFetchStage(pct>=100?`✅ 查詢完成！`:`🤖 已完成 ${done}/${total} 批`);},ctrl.signal,(stage,n)=>{if(ctrl.signal.aborted)return;
-      if(stage==="yahoo")setPlateFetchStage("📡 Yahoo Finance...");
-      else if(stage==="yahoo-done")setPlateFetchStage(`📡 Yahoo 取得 ${n} 檔`);
+      if(stage==="proxy")setPlateFetchStage(`📡 查詢 ${n} 檔...`);
+      else if(stage==="proxy-done")setPlateFetchStage(`📡 取得 ${n} 檔`);
+      else if(stage==="finnhub")setPlateFetchStage(`🔑 Finnhub 查詢中...`);
+      else if(stage==="finnhub-done")setPlateFetchStage(`🔑 取得 ${n} 檔`);
+      else if(stage==="public")setPlateFetchStage(`🌐 備援查詢中...`);
+      else if(stage==="public-done")setPlateFetchStage(`🌐 取得 ${n} 檔`);
     });if(ctrl.signal.aborted)return;const errs=res._errors||[];delete res._errors;const pxCount=Object.keys(res).length;
     if(pxCount){setPrices(prev=>({...prev,...res}));setShareOverrides({});showToast(`✅ ${pxCount} 檔已更新`+(errs.length?` (${errs.length}個錯誤)`:""))}
     else showToast(`⚠️ 無法取得股價 [${errs[0]||"E006"}]`,"error")}catch(e){if(e?.name!=="AbortError")console.warn("PlateV fetch error:",e)}finally{setFetching(false);setPlateFetchProg(0);setPlateFetchStage("")}};
@@ -658,8 +742,12 @@ function WatchlistV({watchlist,saveWatch,showToast,lang="zh"}){const[newTk,setNe
   const remove=tk=>saveWatch(watchlist.filter(w=>w.tk!==tk));
   const updateTarget=(tk,v)=>saveWatch(watchlist.map(w=>w.tk===tk?{...w,targetPx:parseFloat(v)||0}:w));
   const fetchAll=async()=>{const tks=watchlist.map(w=>w.tk);if(!tks.length)return;setFetching(true);setFetchStage("📡 取得股價中...");try{const res=await fetchPx(tks,(done,total)=>{setFetchStage(`🤖 已完成 ${done}/${total} 批`)},null,(stage,n)=>{
-      if(stage==="yahoo")setFetchStage("📡 Yahoo...");
-      else if(stage==="yahoo-done")setFetchStage(`📡 Yahoo 取得 ${n} 檔`);
+      if(stage==="proxy")setFetchStage(`📡 查詢 ${n} 檔...`);
+      else if(stage==="proxy-done")setFetchStage(`📡 取得 ${n} 檔`);
+      else if(stage==="finnhub")setFetchStage(`🔑 Finnhub 查詢中...`);
+      else if(stage==="finnhub-done")setFetchStage(`🔑 取得 ${n} 檔`);
+      else if(stage==="public")setFetchStage(`🌐 備援查詢中...`);
+      else if(stage==="public-done")setFetchStage(`🌐 取得 ${n} 檔`);
     });const errs=res._errors||[];delete res._errors;const pxCount=Object.keys(res).length;
     if(pxCount){saveWatch(watchlist.map(w=>({...w,price:res[w.tk]||w.price})));showToast(`✅ ${pxCount} 檔已更新`+(errs.length?` (${errs.length}個錯誤)`:""))}
     else showToast(`⚠️ 無法取得股價 [${errs[0]||"E006"}]`,"error")}catch(e){console.warn("WatchlistV fetch error:",e)}finally{setFetching(false);setFetchStage("")}};
@@ -865,7 +953,11 @@ function GuideV({lang="zh"}){
   </div>;
 }
 
-function SetV({p,saveP,deleteP,portfolios,saveIdx,showToast,cfg,saveCfg,avatar,saveAvatar,watchlist,theme,setTheme,lang,setLang}){const[confirmDel,setConfirmDel]=useState(false);const[showPaste,setShowPaste]=useState(false);const[pasteText,setPasteText]=useState("");const[showPasteAll,setShowPasteAll]=useState(false);const[pasteAllText,setPasteAllText]=useState("");const avRef=useRef(null);
+function SetV({p,saveP,deleteP,portfolios,saveIdx,showToast,cfg,saveCfg,avatar,saveAvatar,watchlist,theme,setTheme,lang,setLang}){
+  const[pxProxy,_setPxProxy]=useState(()=>{try{return localStorage.getItem("bos-vp-proxy")||""}catch{return ""}});
+  const[pxFinnhub,_setPxFinnhub]=useState(()=>{try{return localStorage.getItem("bos-vp-finnhub")||""}catch{return ""}});
+  const setPxProxy=v=>{_setPxProxy(v);try{localStorage.setItem("bos-vp-proxy",v.trim())}catch{}};
+  const setPxFinnhub=v=>{_setPxFinnhub(v);try{localStorage.setItem("bos-vp-finnhub",v.trim())}catch{}};const[confirmDel,setConfirmDel]=useState(false);const[showPaste,setShowPaste]=useState(false);const[pasteText,setPasteText]=useState("");const[showPasteAll,setShowPasteAll]=useState(false);const[pasteAllText,setPasteAllText]=useState("");const avRef=useRef(null);
   const handleAvatar=e=>{const f=e.target.files?.[0];if(!f)return;if(f.size>500000){showToast("圖片太大","error");return}const r=new FileReader();r.onload=ev=>{saveAvatar(ev.target.result);showToast("✅")};r.readAsDataURL(f);e.target.value=""};
   const expJSON=()=>{const u="data:application/json;charset=utf-8,"+encodeURIComponent(JSON.stringify(p,null,2));const a=document.createElement("a");a.href=u;a.download=`bos-vp-${p.name}-${td()}.json`;a.click()};
   const expAll=async()=>{const allData={portfolios:[],watchlist,cfg,exportedAt:new Date().toISOString()};for(const pi of portfolios){const d=await sG(PP+pi.id);if(d){const plates=await sG(PLK+pi.id);const journal=await sG(JK+"-"+pi.id);allData.portfolios.push({...d,plates:plates||[],journal:journal||[]})}}const u="data:application/json;charset=utf-8,"+encodeURIComponent(JSON.stringify(allData,null,2));const a=document.createElement("a");a.href=u;a.download=`bos-vp-全部備份-${td()}.json`;a.click();showToast("📦 全部資料已匯出")};
@@ -891,6 +983,22 @@ function SetV({p,saveP,deleteP,portfolios,saveIdx,showToast,cfg,saveCfg,avatar,s
     
     <GCard style={{padding:14,marginBottom:10}}><h3 style={gs.pt}>🎨 主題 / Theme</h3><div style={{display:"flex",gap:8}}>{[["dark","🌙 深色 Dark"],["light","☀️ 淺色 Light"]].map(([v,l])=><label key={v} style={{display:"flex",gap:4,cursor:"pointer",fontSize:11,color:theme===v?"var(--blue2)":"var(--text2)",fontWeight:theme===v?700:400}}><input type="radio" name="thm" checked={theme===v} onChange={()=>setTheme(v)}/>{l}</label>)}</div></GCard>
     <GCard style={{padding:14,marginBottom:10}}><h3 style={gs.pt}>🌐 語言 / Language</h3><div style={{display:"flex",gap:8}}>{[["zh","繁體中文"],["en","English"]].map(([v,l])=><label key={v} style={{display:"flex",gap:4,cursor:"pointer",fontSize:11,color:lang===v?"var(--blue2)":"var(--text2)",fontWeight:lang===v?700:400}}><input type="radio" name="lng" checked={lang===v} onChange={()=>setLang(v)}/>{l}</label>)}</div></GCard>
+    <GCard style={{padding:14,marginBottom:10}}><h3 style={gs.pt}>📡 股價來源設定</h3>
+      <p style={{fontSize:10,color:"var(--text3)",margin:"0 0 10px",lineHeight:1.7}}>依序嘗試：自訂 Proxy → Finnhub → 公用備援。<b style={{color:"var(--yellow)"}}>擇一設定即可</b>，都沒設定時請用「📝 貼上股價」。</p>
+      <div style={{marginBottom:10}}>
+        <label style={{fontSize:10,color:"var(--text2)",display:"block",marginBottom:4}}>① 自訂 Proxy 網址（最穩定，推薦）</label>
+        <input style={gs.fi} value={pxProxy} onChange={e=>setPxProxy(e.target.value)} placeholder="https://xxx.workers.dev/?url="/>
+        <p style={{fontSize:9,color:"var(--text4)",margin:"3px 0 0"}}>自行部署 Cloudflare Worker，免費且無流量限制</p>
+      </div>
+      <div>
+        <label style={{fontSize:10,color:"var(--text2)",display:"block",marginBottom:4}}>② Finnhub API Key（備選，免費 60次/分）</label>
+        <input style={gs.fi} value={pxFinnhub} onChange={e=>setPxFinnhub(e.target.value)} placeholder="貼上 Finnhub API Key"/>
+        <p style={{fontSize:9,color:"var(--text4)",margin:"3px 0 0"}}>免費申請：<a href="https://finnhub.io/register" target="_blank" rel="noopener" style={{color:"var(--blue2)"}}>finnhub.io/register</a></p>
+      </div>
+      <div style={{marginTop:10,padding:"7px 10px",background:"rgba(59,130,246,.08)",border:"1px solid rgba(59,130,246,.15)",borderRadius:6}}>
+        <span style={{fontSize:9,color:"var(--blue2)",lineHeight:1.6}}>目前狀態：{pxProxy?"✅ 自訂 Proxy 已設定":pxFinnhub?"✅ Finnhub 已設定":"⚠️ 未設定，僅能用公用備援或手動貼上"}</span>
+      </div>
+    </GCard>
     
     <GCard style={{padding:14,marginBottom:10}}><h3 style={gs.pt}>📊 基準指標</h3><input style={gs.fi} value={p.benchmark} onChange={e=>saveP({...p,benchmark:e.target.value.toUpperCase()})} placeholder="SPY"/></GCard>
     <GCard style={{padding:14,marginBottom:10}}><h3 style={gs.pt}>💾 資料備份</h3><div style={{display:"flex",gap:6,flexWrap:"wrap"}}><RippleBtn style={gs.btnG} onClick={expJSON}>📤 匯出組合</RippleBtn><RippleBtn style={gs.btnG} onClick={()=>document.getElementById("imp1set").click()}>📥 匯入組合</RippleBtn><input id="imp1set" type="file" accept=".json" style={{display:"none"}} onChange={impJSON}/></div><div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}><RippleBtn style={{...gs.btnP,background:"linear-gradient(135deg,#7c3aed,#6d28d9)"}} onClick={expAll}>📦 匯出全部</RippleBtn><RippleBtn style={gs.btnA} onClick={()=>document.getElementById("impAllSet").click()}>📦 匯入全部</RippleBtn><input id="impAllSet" type="file" accept=".json" style={{display:"none"}} onChange={impAll}/></div><div style={{marginTop:8,padding:"8px 10px",background:"rgba(59,130,246,.08)",border:"1px solid rgba(59,130,246,.15)",borderRadius:6}}><div style={{display:"flex",gap:6,alignItems:"center"}}><span>ℹ️</span><span style={{fontSize:10,color:"var(--blue2)",lineHeight:1.6}}>{t("storageNote",lang)}</span></div></div><p style={{fontSize:9,color:"var(--text3)",margin:"6px 0 0"}}>「全部資料」包含所有組合、菜盤、日誌、觀察清單</p></GCard>
